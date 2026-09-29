@@ -1,0 +1,21 @@
+# Simulation output
+*.vcd
+*.fst
+*.wlf
+*.log
+*.jou
+*.pb
+sim/
+work/
+xsim.dir/
+.vivado/
+
+# Generated data
+*.tmp
+*.bak
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
