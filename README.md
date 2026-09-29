@@ -78,6 +78,10 @@ cnn-mnist-q44/
 │   │   └── argmax.v
 │   └── top/
 │       └── cnn_mnist_top.v
+├── python/
+│   ├── train_model_python.py
+│   ├── golden_model.py
+│   └── export_hex.py
 ├── tb/
 ├── data/
 ├── scripts/
@@ -85,9 +89,36 @@ cnn-mnist-q44/
 └── README.md
 ```
 
+## Python environment & data generation
+
+The `python/` directory contains the reference model and the scripts used to generate data for bit-exact RTL simulation:
+
+| File | Description |
+| --- | --- |
+| `train_model_python.py` | Trains the CNN on the MNIST dataset and extracts the weight/bias parameters. |
+| `golden_model.py` | Functional bit-exact reference model that reproduces the Q4.4 fixed-point arithmetic of the RTL exactly. |
+| `export_hex.py` | Exports input images, weights/biases, and intermediate results as `.hex` files in `data/`, used as testbench inputs and golden targets. |
+
+### Running the Python scripts (generate verification data)
+
+Run the following steps in order, starting from the project root:
+
+```bash
+# 1. Enter the python directory
+cd python
+
+# 2. Train the MNIST model and save the checkpoint/weights
+python train_model_python.py
+
+# 3. Export the .hex files used for RTL simulation
+python export_hex.py
+```
+
+When the scripts finish, the new `.hex` files are generated in `data/` for verification in the testbench (the RTL testbench loads them via `$readmemh`).
+
 ## Verification order
 
-Do not debug the complete CNN first.
+Do not debug the complete CNN first. Verify block by block, in this order:
 
 ```text
 round_shift_even
@@ -114,7 +145,7 @@ cnn_mnist_top
 ## Golden comparison points
 
 | Stage | Reference |
-|---|---|
+| --- | --- |
 | Conv1 quant/ReLU | `data/golden_relu1.hex` |
 | Pool1 | `data/golden_pool1.hex` |
 | Conv2 quant/ReLU | `data/golden_relu2.hex` |
@@ -136,19 +167,19 @@ This is **not** the final accelerator architecture. Later phases will introduce 
 ## Roadmap
 
 ```text
-PHASE 0  Arithmetic primitives
+PHASE 0   Arithmetic primitives
    ↓
-PHASE 1  Bit-exact CNN reference datapath
+PHASE 1   Bit-exact CNN reference datapath
    ↓
-PHASE 2  FC → GEMM/GEMV engine
+PHASE 2   FC → GEMM/GEMV engine
    ↓
-PHASE 3  FSM + datapath separation
+PHASE 3   FSM + datapath separation
    ↓
-PHASE 4  Memory architecture
+PHASE 4   Memory architecture
    ↓
-PHASE 5  Arbiter + accelerator control
+PHASE 5   Arbiter + accelerator control
    ↓
-PHASE 6  PPA optimization
+PHASE 6   PPA optimization
 ```
 
 ## Status
