@@ -53,7 +53,7 @@ digit[3:0]
 ## Repository structure
 
 ```text
-cnn-mnist-q44-rtl/
+cnn-mnist-q44/
 ├── rtl/
 │   ├── common/
 │   │   ├── round_shift_even.v
