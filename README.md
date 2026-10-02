@@ -1,56 +1,73 @@
 # CNN MNIST Q4.4 — RTL Accelerator
 
-Bit-exact SystemVerilog/Verilog reference implementation of a small MNIST CNN using signed INT8 Q4.4 fixed-point arithmetic.
+Bit-exact Verilog/SystemVerilog reference implementation of a small MNIST CNN using signed INT8 Q4.4 fixed-point arithmetic.
 
-## Goal
+> **Phase 1 goal:** correctness and verification first.  
+> PPA, throughput, MAC reuse, BRAM optimization, AXI and accelerator integration are later phases.
 
-Phase 1 is a **golden RTL reference datapath**. Its primary target is functional correctness against `golden_model.py`, not PPA or throughput optimization.
-
-The network is:
+## Architecture
 
 ```text
-28x28x1
-  │
-  ▼
-Conv1: 1 -> 4, 3x3, stride 1
-  │
-  ▼
-ReLU + 2x2 MaxPool
-  │
-  ▼
-4x13x13
-  │
-  ▼
-Conv2: 4 -> 8, 3x3, stride 1
-  │
-  ▼
-ReLU + 2x2 MaxPool
-  │
-  ▼
-8x5x5 = 200 features
-  │
-  ▼
-FC: 200 -> 10
-  │
-  ▼
+MNIST 28x28x1 Q4.4
+        │
+        ▼
+Conv1: 1 → 4, 3x3, stride 1
+        │
+        ▼
+Round-even → Saturate → ReLU
+        │
+        ▼
+MaxPool 2x2
+        │
+        ▼
+Pool1: 4x13x13
+        │
+        ▼
+Channel-major reorder → Feature Mem1
+        │
+        ▼
+Conv2: 4 → 8, 3x3, stride 1
+        │
+        ▼
+Round-even → Saturate → ReLU
+        │
+        ▼
+MaxPool 2x2
+        │
+        ▼
+Pool2: 8x5x5
+        │
+        ▼
+Channel-major reorder → Feature Mem2
+        │
+        ▼
+FC: 200 → 10
+        │
+        ▼
 ArgMax
-  │
-  ▼
+        │
+        ▼
 digit[3:0]
 ```
 
-## Fixed-point format
+## Numerical Contract
 
-- Input / weights / bias / feature maps: signed INT8 Q4.4
-- Q4.4 real value: `integer / 16`
-- Multiplication: signed Q8.8
-- Accumulator: signed INT32 Q8.8
-- Bias alignment: `bias << 4`
-- Quantization: round-to-nearest-even, then saturation to `[-128, 127]`
-- ReLU is applied after quantization
-- FC output remains signed INT32 Q8.8
+| Item | Format / Rule |
+|---|---|
+| Input / weights / bias / feature maps | signed INT8 Q4.4 |
+| Q4.4 scale | `16` |
+| Q4.4 real value | `integer / 16` |
+| Product | signed Q8.8 |
+| Conv / FC accumulator | signed INT32 Q8.8 |
+| Bias alignment | `bias << 4` |
+| Requantization | round-to-nearest-even, then saturate to `[-128, 127]` |
+| Activation | ReLU after requantization |
+| FC output | raw signed INT32 Q8.8 logits |
+| ArgMax tie rule | strict `>`; lowest index wins |
 
-## Repository structure
+`python/golden_model.py` is the numerical source of truth.
+
+## Repository Structure
 
 ```text
 cnn-mnist-q44/
@@ -59,12 +76,20 @@ cnn-mnist-q44/
 │   │   ├── round_shift_even.v
 │   │   ├── sat_int8.v
 │   │   └── relu_int8.v
+│   ├── memory/
+│   │   ├── feature_mem1.v
+│   │   └── feature_mem2.v
+│   ├── rom/
+│   │   ├── conv1_rom.v
+│   │   ├── conv2_rom.v
+│   │   └── fc_rom.v
 │   ├── conv1/
 │   │   ├── conv1_buf.v
 │   │   ├── conv1_calc.v
 │   │   ├── conv1_quant_relu.v
 │   │   ├── pool1_buf.v
 │   │   ├── pool1.v
+│   │   ├── pool1_reorder.v
 │   │   └── conv1_layer.v
 │   ├── conv2/
 │   │   ├── conv2_buf.v
@@ -72,129 +97,183 @@ cnn-mnist-q44/
 │   │   ├── conv2_quant_relu.v
 │   │   ├── pool2_buf.v
 │   │   ├── pool2.v
+│   │   ├── pool2_reorder.v
 │   │   └── conv2_layer.v
 │   ├── fc/
 │   │   ├── fully_connected.v
 │   │   └── argmax.v
+│   ├── control/
+│   │   └── top_fsm.v
 │   └── top/
 │       └── cnn_mnist_top.v
 ├── python/
 │   ├── train_model_python.py
 │   ├── golden_model.py
-│   └── export_hex.py
+│   ├── export_hex.py
+│   └── smoke_test_golden.py
 ├── tb/
 ├── data/
 ├── scripts/
 ├── docs/
+│   ├── RTL_SPEC.md
+│   └── VERIFICATION_ROADMAP.md
 └── README.md
 ```
 
-## Python environment & data generation
+## Python Flow
 
-The `python/` directory contains the reference model and the scripts used to generate data for bit-exact RTL simulation:
+| File | Purpose |
+|---|---|
+| `python/train_model_python.py` | Train the MNIST CNN and save the model checkpoint. |
+| `python/golden_model.py` | Bit-exact fixed-point arithmetic used as the RTL reference. |
+| `python/export_hex.py` | Export parameters, input data and golden checkpoints to `data/`. |
+| `python/smoke_test_golden.py` | Sanity-test the golden arithmetic before generating RTL vectors. |
 
-| File | Description |
-| --- | --- |
-| `train_model_python.py` | Trains the CNN on the MNIST dataset and extracts the weight/bias parameters. |
-| `golden_model.py` | Functional bit-exact reference model that reproduces the Q4.4 fixed-point arithmetic of the RTL exactly. |
-| `export_hex.py` | Exports input images, weights/biases, and intermediate results as `.hex` files in `data/`, used as testbench inputs and golden targets. |
+### Generate Verification Data
 
-### Running the Python scripts (generate verification data)
-
-Run the following steps in order, starting from the project root:
+From the repository root:
 
 ```bash
-# 1. Enter the python directory
 cd python
 
-# 2. Train the MNIST model and save the checkpoint/weights
+python -m pip install -r requirements.txt
+
+# Optional but recommended after changing golden_model.py
+python smoke_test_golden.py
+
+# Train once if model_q44.pth does not exist
 python train_model_python.py
 
-# 3. Export the .hex files used for RTL simulation
+# Generate RTL parameters and golden checkpoints
 python export_hex.py
 ```
 
-When the scripts finish, the new `.hex` files are generated in `data/` for verification in the testbench (the RTL testbench loads them via `$readmemh`).
-
-## Verification order
-
-Do not debug the complete CNN first. Verify block by block, in this order:
+Expected checkpoint files include:
 
 ```text
-round_shift_even
-      ↓
-sat_int8
-      ↓
-signed MAC
-      ↓
-Conv1 buffer/calculation/quantization
-      ↓
-Pool1
-      ↓
-Conv2 buffer/calculation/quantization
-      ↓
-Pool2
-      ↓
-FC
-      ↓
-ArgMax
-      ↓
-cnn_mnist_top
+data/
+├── input.hex
+├── conv1_weight.hex
+├── conv1_bias.hex
+├── conv2_weight.hex
+├── conv2_bias.hex
+├── fc_weight.hex
+├── fc_bias.hex
+├── golden_conv1.hex
+├── golden_relu1.hex
+├── golden_pool1.hex
+├── golden_conv2.hex
+├── golden_relu2.hex
+├── golden_pool2.hex
+├── golden.hex
+├── prediction.hex
+└── label.hex
 ```
 
-## Golden comparison points
+## Golden Checkpoints
 
-| Stage | Reference |
-| --- | --- |
-| Conv1 quant/ReLU | `data/golden_relu1.hex` |
-| Pool1 | `data/golden_pool1.hex` |
-| Conv2 quant/ReLU | `data/golden_relu2.hex` |
-| Pool2 | `data/golden_pool2.hex` |
-| FC logits | `data/golden.hex` |
-| ArgMax | `data/prediction.hex` |
+| RTL stage | Golden file | Format |
+|---|---|---|
+| `conv1_calc` | `golden_conv1.hex` | 2704 × INT32 Q8.8 |
+| `conv1_quant_relu` | `golden_relu1.hex` | 2704 × INT8 Q4.4 |
+| Pool1 logical tensor | `golden_pool1.hex` | 676 × INT8 Q4.4 |
+| `conv2_calc` | `golden_conv2.hex` | 968 × INT32 Q8.8 |
+| `conv2_quant_relu` | `golden_relu2.hex` | 968 × INT8 Q4.4 |
+| Pool2 logical tensor | `golden_pool2.hex` | 200 × INT8 Q4.4 |
+| `fully_connected` | `golden.hex` | 10 × INT32 Q8.8 |
+| `argmax` | `prediction.hex` | 1 × digit |
 
-## Resource note
+## Tensor and Memory Ordering
 
-The Phase 1 reference architecture is intentionally parallel:
+All multi-channel tensors use:
 
-- Conv1: 36 theoretical multipliers
-- Conv2: 288 theoretical multipliers
-- FC: 80 theoretical multipliers
-- Total: about 404 theoretical parallel multipliers
+```text
+[channel][row][column]
+```
 
-This is **not** the final accelerator architecture. Later phases will introduce GEMM/GEMV, FSM/datapath separation, memory reuse, arbitration, and PPA optimization.
+Canonical flatten index:
+
+```text
+index = c * (H * W) + y * W + x
+```
+
+Feature memories store this **channel-major flattened stream**.
+
+Important: the Conv/Pool datapath naturally produces all channels for one spatial coordinate at the same time. That spatial word is **not** the canonical memory order. `pool1_reorder.v` and `pool2_reorder.v` convert the spatial stream into channel-major order before writing feature memory.
+
+## Verification Strategy
+
+Verify bottom-up and stop at the first mismatch:
+
+```text
+golden arithmetic smoke test
+        ↓
+round_shift_even / sat_int8 / relu_int8
+        ↓
+feature memories + ROMs
+        ↓
+Conv1 buffer → MAC → quant/ReLU → pool → reorder
+        ↓
+Conv2 buffer → MAC → quant/ReLU → pool → reorder
+        ↓
+FC
+        ↓
+ArgMax
+        ↓
+Top-level end-to-end inference
+```
+
+Do not debug the full CNN first. Every major stage has a Python checkpoint.
+
+## Phase 1 Resource Strategy
+
+The reference architecture intentionally favors simple, visible parallelism:
+
+| Block | Reference parallel multipliers |
+|---|---:|
+| Conv1 | 36 |
+| Conv2 | 288 |
+| FC | 80 |
+| **Total** | **404** |
+
+These are reference datapaths, not the final optimized FPGA architecture.
+
+Later versions can introduce MAC reuse, GEMM/GEMV, DSP mapping, BRAM-based storage, pipelining and shared compute engines.
+
+## Status
+
+- [ ] Golden arithmetic smoke test
+- [ ] Common arithmetic RTL
+- [ ] Feature memories / ROMs
+- [ ] Conv1
+- [ ] Pool1 + reorder
+- [ ] Conv2
+- [ ] Pool2 + reorder
+- [ ] FC
+- [ ] ArgMax
+- [ ] Top-level integration
+- [ ] Bit-exact single-image verification
+- [ ] Multi-image regression
+- [ ] Synthesis / PPA report
 
 ## Roadmap
 
 ```text
-PHASE 0   Arithmetic primitives
+Phase 1  Bit-exact reference RTL
    ↓
-PHASE 1   Bit-exact CNN reference datapath
+Phase 2  MAC reuse / GEMM-GEMV refactor
    ↓
-PHASE 2   FC → GEMM/GEMV engine
+Phase 3  Datapath + controller separation
    ↓
-PHASE 3   FSM + datapath separation
+Phase 4  BRAM / memory architecture
    ↓
-PHASE 4   Memory architecture
+Phase 5  Accelerator control + bus integration
    ↓
-PHASE 5   Arbiter + accelerator control
-   ↓
-PHASE 6   PPA optimization
+Phase 6  PPA optimization and FPGA benchmarking
 ```
 
-## Status
-
-- [ ] Phase 0 — arithmetic primitives
-- [ ] Conv1
-- [ ] Pool1
-- [ ] Conv2
-- [ ] Pool2
-- [ ] FC
-- [ ] ArgMax
-- [ ] Top-level CNN
-- [ ] Bit-exact verification
-- [ ] Multi-image regression
+See [`docs/RTL_SPEC.md`](docs/RTL_SPEC.md) for the locked module interfaces and [`docs/VERIFICATION_ROADMAP.md`](docs/VERIFICATION_ROADMAP.md) for the implementation order.
 
 ## License
 
-Add the license appropriate for your project before publishing externally.
+Add a license before public release.
