@@ -2,67 +2,75 @@
 
 Bit-exact Verilog/SystemVerilog reference implementation of a small MNIST CNN using signed INT8 Q4.4 fixed-point arithmetic.
 
-> **Phase 1 goal:** correctness and verification first.  
-> PPA, throughput, MAC reuse, BRAM optimization, AXI and accelerator integration are later phases.
+> **Phase 1 goal:** build a correct, bit-exact RTL reference against the Python golden model.  
+> PPA optimization, MAC reuse, BRAM mapping, AXI integration and accelerator-level optimization come later.
 
-## Architecture
+## Block Diagram
+
+### Top-Level Architecture
+
+<p align="center">
+  <img src="docs/images/top_level_block_diagram.png" alt="CNN MNIST Q4.4 top-level RTL block diagram" width="100%">
+</p>
+
+The top-level flow is controlled by `top_fsm`:
 
 ```text
-MNIST 28x28x1 Q4.4
-        │
-        ▼
-Conv1: 1 → 4, 3x3, stride 1
-        │
-        ▼
-Round-even → Saturate → ReLU
-        │
-        ▼
-MaxPool 2x2
-        │
-        ▼
-Pool1: 4x13x13
-        │
-        ▼
-Channel-major reorder → Feature Mem1
-        │
-        ▼
-Conv2: 4 → 8, 3x3, stride 1
-        │
-        ▼
-Round-even → Saturate → ReLU
-        │
-        ▼
-MaxPool 2x2
-        │
-        ▼
-Pool2: 8x5x5
-        │
-        ▼
-Channel-major reorder → Feature Mem2
-        │
-        ▼
-FC: 200 → 10
-        │
-        ▼
+Input stream
+    ↓
+Conv1 layer
+    ↓
+Feature Mem1
+    ↓
+Conv2 layer
+    ↓
+Feature Mem2
+    ↓
+Fully Connected
+    ↓
 ArgMax
-        │
-        ▼
+    ↓
 digit[3:0]
 ```
 
+### Conv1 Datapath
+
+<p align="center">
+  <img src="docs/images/conv1_block_diagram.png" alt="Conv1 RTL block diagram" width="100%">
+</p>
+
+### Conv2 Datapath
+
+<p align="center">
+  <img src="docs/images/conv2_block_diagram.png" alt="Conv2 RTL block diagram" width="100%">
+</p>
+
+## Network
+
+| Stage | Shape | Format |
+|---|---:|---|
+| Input | `1×28×28` | INT8 Q4.4 |
+| Conv1 | `4×26×26` | INT32 Q8.8 raw accumulator |
+| ReLU1 | `4×26×26` | INT8 Q4.4 |
+| Pool1 | `4×13×13` | INT8 Q4.4 |
+| Conv2 | `8×11×11` | INT32 Q8.8 raw accumulator |
+| ReLU2 | `8×11×11` | INT8 Q4.4 |
+| Pool2 | `8×5×5` | INT8 Q4.4 |
+| FC | `10 logits` | INT32 Q8.8 |
+| Output | `digit[3:0]` | class `0..9` |
+
 ## Numerical Contract
 
-| Item | Format / Rule |
+| Item | Rule |
 |---|---|
 | Input / weights / bias / feature maps | signed INT8 Q4.4 |
 | Q4.4 scale | `16` |
-| Q4.4 real value | `integer / 16` |
 | Product | signed Q8.8 |
 | Conv / FC accumulator | signed INT32 Q8.8 |
 | Bias alignment | `bias << 4` |
-| Requantization | round-to-nearest-even, then saturate to `[-128, 127]` |
+| Requantization | round-to-nearest-even, then saturate to `[-128,127]` |
 | Activation | ReLU after requantization |
-| FC output | raw signed INT32 Q8.8 logits |
+| FC output | raw signed INT32 Q8.8 |
 | ArgMax tie rule | strict `>`; lowest index wins |
 
 `python/golden_model.py` is the numerical source of truth.
@@ -113,61 +121,35 @@ cnn-mnist-q44/
 │   └── smoke_test_golden.py
 ├── tb/
 ├── data/
-├── scripts/
 ├── docs/
 │   ├── RTL_SPEC.md
-│   └── VERIFICATION_ROADMAP.md
+│   ├── VERIFICATION_ROADMAP.md
+│   ├── PROJECT_PROGRESS.md
+│   └── images/
+│       ├── top_level_block_diagram.png
+│       ├── conv1_block_diagram.png
+│       └── conv2_block_diagram.png
 └── README.md
 ```
 
-## Python Flow
+## Python Golden Flow
 
 | File | Purpose |
 |---|---|
 | `python/train_model_python.py` | Train the MNIST CNN and save the model checkpoint. |
-| `python/golden_model.py` | Bit-exact fixed-point arithmetic used as the RTL reference. |
-| `python/export_hex.py` | Export parameters, input data and golden checkpoints to `data/`. |
-| `python/smoke_test_golden.py` | Sanity-test the golden arithmetic before generating RTL vectors. |
+| `python/golden_model.py` | Bit-exact fixed-point reference model for RTL verification. |
+| `python/export_hex.py` | Export parameters, input data and golden checkpoints. |
+| `python/smoke_test_golden.py` | Sanity-check golden arithmetic before generating RTL vectors. |
 
-### Generate Verification Data
-
-From the repository root:
+Run from the project root:
 
 ```bash
 cd python
-
 python -m pip install -r requirements.txt
 
-# Optional but recommended after changing golden_model.py
 python smoke_test_golden.py
-
-# Train once if model_q44.pth does not exist
-python train_model_python.py
-
-# Generate RTL parameters and golden checkpoints
+python train_model_python.py   # only when a model checkpoint is needed
 python export_hex.py
-```
-
-Expected checkpoint files include:
-
-```text
-data/
-├── input.hex
-├── conv1_weight.hex
-├── conv1_bias.hex
-├── conv2_weight.hex
-├── conv2_bias.hex
-├── fc_weight.hex
-├── fc_bias.hex
-├── golden_conv1.hex
-├── golden_relu1.hex
-├── golden_pool1.hex
-├── golden_conv2.hex
-├── golden_relu2.hex
-├── golden_pool2.hex
-├── golden.hex
-├── prediction.hex
-└── label.hex
 ```
 
 ## Golden Checkpoints
@@ -176,58 +158,75 @@ data/
 |---|---|---|
 | `conv1_calc` | `golden_conv1.hex` | 2704 × INT32 Q8.8 |
 | `conv1_quant_relu` | `golden_relu1.hex` | 2704 × INT8 Q4.4 |
-| Pool1 logical tensor | `golden_pool1.hex` | 676 × INT8 Q4.4 |
+| Pool1 tensor | `golden_pool1.hex` | 676 × INT8 Q4.4 |
 | `conv2_calc` | `golden_conv2.hex` | 968 × INT32 Q8.8 |
 | `conv2_quant_relu` | `golden_relu2.hex` | 968 × INT8 Q4.4 |
-| Pool2 logical tensor | `golden_pool2.hex` | 200 × INT8 Q4.4 |
+| Pool2 tensor | `golden_pool2.hex` | 200 × INT8 Q4.4 |
 | `fully_connected` | `golden.hex` | 10 × INT32 Q8.8 |
-| `argmax` | `prediction.hex` | 1 × digit |
+| `argmax` | `prediction.hex` | 1 digit |
 
 ## Tensor and Memory Ordering
 
-All multi-channel tensors use:
+Canonical feature order:
 
 ```text
 [channel][row][column]
 ```
 
-Canonical flatten index:
+Flatten index:
 
 ```text
 index = c * (H * W) + y * W + x
 ```
 
-Feature memories store this **channel-major flattened stream**.
-
-Important: the Conv/Pool datapath naturally produces all channels for one spatial coordinate at the same time. That spatial word is **not** the canonical memory order. `pool1_reorder.v` and `pool2_reorder.v` convert the spatial stream into channel-major order before writing feature memory.
+The Conv/Pool datapath naturally emits all channels for one spatial position, while feature memories use channel-major flattened order. `pool1_reorder.v` and `pool2_reorder.v` perform this conversion before data is written to feature memory.
 
 ## Verification Strategy
 
-Verify bottom-up and stop at the first mismatch:
+Verification is bottom-up and stops at the first mismatch:
 
 ```text
-golden arithmetic smoke test
-        ↓
-round_shift_even / sat_int8 / relu_int8
-        ↓
-feature memories + ROMs
-        ↓
-Conv1 buffer → MAC → quant/ReLU → pool → reorder
-        ↓
-Conv2 buffer → MAC → quant/ReLU → pool → reorder
-        ↓
+Golden arithmetic
+    ↓
+Common arithmetic RTL
+    ↓
+Conv1 buffer / MAC / quant-ReLU / pool
+    ↓
+Pool1 reorder + Mem1
+    ↓
+Conv2
+    ↓
+Pool2 reorder + Mem2
+    ↓
 FC
-        ↓
+    ↓
 ArgMax
-        ↓
-Top-level end-to-end inference
+    ↓
+Top-level inference
 ```
 
-Do not debug the full CNN first. Every major stage has a Python checkpoint.
+## Current Progress
+
+| Block | Verification | Status |
+|---|---|---|
+| `round_shift_even.v` | arithmetic edge/tie cases | PASS |
+| `sat_int8.v` | saturation boundaries | PASS |
+| `relu_int8.v` | signed INT8 vectors | PASS |
+| `conv1_buf.v` | 676 windows × 2 frames | PASS |
+| `conv1_calc.v` | 2704/2704 raw accumulators | PASS |
+| `conv1_quant_relu.v` | 2704/2704 golden outputs | PASS |
+| `pool1_buf.v` | 169 windows × 2 frames | PASS |
+| `pool1.v` | next module | TODO |
+| Conv1 reorder / Mem1 | pending | TODO |
+| Conv2 | pending | TODO |
+| FC / ArgMax | pending | TODO |
+| Top-level | pending | TODO |
+
+Detailed progress is tracked in [`docs/PROJECT_PROGRESS.md`](docs/PROJECT_PROGRESS.md).
 
 ## Phase 1 Resource Strategy
 
-The reference architecture intentionally favors simple, visible parallelism:
+The reference design intentionally favors visible parallelism:
 
 | Block | Reference parallel multipliers |
 |---|---:|
@@ -236,25 +235,7 @@ The reference architecture intentionally favors simple, visible parallelism:
 | FC | 80 |
 | **Total** | **404** |
 
-These are reference datapaths, not the final optimized FPGA architecture.
-
-Later versions can introduce MAC reuse, GEMM/GEMV, DSP mapping, BRAM-based storage, pipelining and shared compute engines.
-
-## Status
-
-- [ ] Golden arithmetic smoke test
-- [ ] Common arithmetic RTL
-- [ ] Feature memories / ROMs
-- [ ] Conv1
-- [ ] Pool1 + reorder
-- [ ] Conv2
-- [ ] Pool2 + reorder
-- [ ] FC
-- [ ] ArgMax
-- [ ] Top-level integration
-- [ ] Bit-exact single-image verification
-- [ ] Multi-image regression
-- [ ] Synthesis / PPA report
+This is not the final optimized FPGA architecture. Later phases will introduce MAC reuse, GEMM/GEMV, BRAM-based storage, shared compute resources and PPA optimization.
 
 ## Roadmap
 
@@ -272,7 +253,11 @@ Phase 5  Accelerator control + bus integration
 Phase 6  PPA optimization and FPGA benchmarking
 ```
 
-See [`docs/RTL_SPEC.md`](docs/RTL_SPEC.md) for the locked module interfaces and [`docs/VERIFICATION_ROADMAP.md`](docs/VERIFICATION_ROADMAP.md) for the implementation order.
+See:
+
+- [`docs/RTL_SPEC.md`](docs/RTL_SPEC.md)
+- [`docs/VERIFICATION_ROADMAP.md`](docs/VERIFICATION_ROADMAP.md)
+- [`docs/PROJECT_PROGRESS.md`](docs/PROJECT_PROGRESS.md)
 
 ## License
 
