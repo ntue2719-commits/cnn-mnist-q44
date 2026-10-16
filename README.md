@@ -2,18 +2,86 @@
 
 Bit-exact Verilog/SystemVerilog reference implementation of a small MNIST CNN using signed INT8 Q4.4 fixed-point arithmetic.
 
-> **Phase 1 goal:** build a correct, bit-exact RTL reference against the Python golden model.  
-> PPA optimization, MAC reuse, BRAM mapping, AXI integration and accelerator-level optimization come later.
+> **Phase 1 goal:** Build a correct, bit-exact RTL reference against the Python golden model.  
+> PPA optimization, MAC reuse, BRAM mapping, AXI integration, and accelerator-level optimization come later.
 
-## Block Diagram
+## Block Diagrams
 
-### Top-Level Architecture
+The diagrams are organized into **module interfaces** (external ports and data widths) and **internal architecture** (processing stages and dataflow). Interface diagrams describe the intended module boundaries; they do **not** imply that the corresponding RTL modules have already passed verification.
+
+### Module Interfaces
+
+#### CNN Top-Level Interface — `cnn_mnist_top.v`
 
 <p align="center">
-  <img src="docs/images/top_level_block_diagram.png" alt="CNN MNIST Q4.4 top-level RTL block diagram" width="100%">
+  <img src="docs/images/cnn_mnist_top_interface.png" alt="CNN MNIST top-level module interface showing clock, reset, input pixel stream, control, status, and prediction ports" width="100%">
 </p>
 
-The top-level flow is controlled by `top_fsm`:
+The CNN top level accepts an 8-bit pixel stream and coordinates inference across the network.
+
+| Direction | Port | Width | Description |
+|---|---|---:|---|
+| Input | `i_clk` | 1 | System clock |
+| Input | `i_rstn` | 1 | Active-low reset |
+| Input | `i_valid` | 1 | Input pixel valid |
+| Input | `i_start` | 1 | Start inference |
+| Input | `i_pixel` | 8 | Signed INT8 Q4.4 input pixel |
+| Output | `o_busy` | 1 | Inference busy status |
+| Output | `o_valid` | 1 | Prediction valid |
+| Output | `o_done` | 1 | Inference completion |
+| Output | `o_digit` | 4 | Predicted MNIST class (0–9) |
+
+#### Conv1 Layer Interface — `conv1_layer.v`
+
+<p align="center">
+  <img src="docs/images/conv1_layer_interface.png" alt="Conv1 layer interface with 8-bit input pixels and 32-bit output data" width="100%">
+</p>
+
+Conv1 receives a single-channel 28×28 pixel stream and ultimately emits 32-bit words. The four byte lanes of the output are governed by the layer's agreed data-ordering contract.
+
+| Direction | Port | Width | Description |
+|---|---|---:|---|
+| Input | `i_clk` | 1 | System clock |
+| Input | `i_rstn` | 1 | Active-low reset |
+| Input | `i_start_conv1` | 1 | Start Conv1 processing |
+| Input | `i_valid` | 1 | Input pixel valid |
+| Input | `i_pixel` | 8 | Signed INT8 Q4.4 input pixel |
+| Output | `o_busy` | 1 | Conv1 busy status |
+| Output | `o_valid` | 1 | Output word valid |
+| Output | `o_conv1_done` | 1 | Conv1 completion |
+| Output | `o_data` | 32 | Packed output data for the next stage |
+
+#### Conv2 Layer Interface — `conv2_layer.v`
+
+<p align="center">
+  <img src="docs/images/conv2_layer_interface.png" alt="Conv2 layer interface with 32-bit input words and 64-bit output data" width="100%">
+</p>
+
+Conv2 receives 32-bit words from the Conv1/Feature Mem1 path and produces 64-bit output words for the downstream memory path. The input words follow the canonical flattened feature-memory ordering, **not** necessarily four channels at one spatial coordinate.
+
+| Direction | Port | Width | Description |
+|---|---|---:|---|
+| Input | `i_clk` | 1 | System clock |
+| Input | `i_rstn` | 1 | Active-low reset |
+| Input | `i_start_conv2` | 1 | Start Conv2 processing |
+| Input | `i_valid` | 1 | Input word valid |
+| Input | `i_data` | 32 | Packed input feature data |
+| Output | `o_busy` | 1 | Conv2 busy status |
+| Output | `o_valid` | 1 | Output word valid |
+| Output | `o_conv2_done` | 1 | Conv2 completion |
+| Output | `o_data` | 64 | Packed output data for the next stage |
+
+> **Naming note:** The interface figures use `i_rstn`, while the existing verified leaf modules use `i_rst_n`. Preserve the actual RTL port names when instantiating modules; the diagrams do not define an automatic alias. Completion/busy timing must be specified and verified when each layer is implemented.
+
+### Internal RTL Architecture
+
+#### CNN Processing Architecture
+
+<p align="center">
+  <img src="docs/images/top_level_block_diagram.png" alt="CNN MNIST internal top-level RTL processing architecture" width="100%">
+</p>
+
+The intended top-level flow is controlled by `top_fsm`:
 
 ```text
 Input stream
@@ -33,17 +101,27 @@ ArgMax
 digit[3:0]
 ```
 
-### Conv1 Datapath
+#### Conv1 Datapath
 
 <p align="center">
-  <img src="docs/images/conv1_block_diagram.png" alt="Conv1 RTL block diagram" width="100%">
+  <img src="docs/images/conv1_block_diagram.png" alt="Conv1 internal RTL datapath block diagram" width="100%">
 </p>
 
-### Conv2 Datapath
+```text
+conv1_buf → conv1_calc → conv1_quant_relu → pool1_buf → pool1
+          → pool1_reorder → feature_mem1
+```
+
+#### Conv2 Datapath
 
 <p align="center">
-  <img src="docs/images/conv2_block_diagram.png" alt="Conv2 RTL block diagram" width="100%">
+  <img src="docs/images/conv2_block_diagram.png" alt="Conv2 internal RTL datapath block diagram" width="100%">
 </p>
+
+```text
+feature_mem1 → conv2_buf → conv2_calc → conv2_quant_relu
+             → pool2_buf → pool2 → pool2_reorder → feature_mem2
+```
 
 ## Network
 
@@ -73,7 +151,7 @@ digit[3:0]
 | FC output | raw signed INT32 Q8.8 |
 | ArgMax tie rule | strict `>`; lowest index wins |
 
-`python/golden_model.py` is the numerical source of truth.
+`python/golden_model.py` is the numerical source of truth. RTL arithmetic operates on signed integer bit patterns; Q4.4/Q8.8 specify their implicit fixed-point scales.
 
 ## Repository Structure
 
@@ -126,11 +204,16 @@ cnn-mnist-q44/
 │   ├── VERIFICATION_ROADMAP.md
 │   ├── PROJECT_PROGRESS.md
 │   └── images/
+│       ├── cnn_mnist_top_interface.png
+│       ├── conv1_layer_interface.png
+│       ├── conv2_layer_interface.png
 │       ├── top_level_block_diagram.png
 │       ├── conv1_block_diagram.png
 │       └── conv2_block_diagram.png
 └── README.md
 ```
+
+> The tree documents the intended repository layout. Not all listed RTL files are implemented or verified yet.
 
 ## Python Golden Flow
 
@@ -138,7 +221,7 @@ cnn-mnist-q44/
 |---|---|
 | `python/train_model_python.py` | Train the MNIST CNN and save the model checkpoint. |
 | `python/golden_model.py` | Bit-exact fixed-point reference model for RTL verification. |
-| `python/export_hex.py` | Export parameters, input data and golden checkpoints. |
+| `python/export_hex.py` | Export parameters, input data, and golden checkpoints. |
 | `python/smoke_test_golden.py` | Sanity-check golden arithmetic before generating RTL vectors. |
 
 Run from the project root:
@@ -235,7 +318,7 @@ The reference design intentionally favors visible parallelism:
 | FC | 80 |
 | **Total** | **404** |
 
-This is not the final optimized FPGA architecture. Later phases will introduce MAC reuse, GEMM/GEMV, BRAM-based storage, shared compute resources and PPA optimization.
+This is not the final optimized FPGA architecture. Later phases will introduce MAC reuse, GEMM/GEMV, BRAM-based storage, shared compute resources, and PPA optimization.
 
 ## Roadmap
 
