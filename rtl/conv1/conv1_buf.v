@@ -1,3 +1,30 @@
+`timescale 1ns / 1ps
+//////////////////////////////////////////////////////////////////////////////////
+// Company: 
+// Engineer: 
+// 
+// Create Date: 10/09/2026 11:06:19 PM
+// Design Name: Nguyen Tri Tue
+// Module Name: conv1_buf
+// Description:
+//   Streaming 3x3 window generator for a 28x28 single-channel image.
+//
+//   Input:
+//     - 784 signed INT8 Q4.4 pixels in row-major order.
+//     - Counters advance only when i_valid = 1.
+//
+//   Output:
+//     - 26x26 = 676 valid 3x3 windows.
+//     - Window packing:
+//         P0 P1 P2
+//         P3 P4 P5
+//         P6 P7 P8
+//
+//       o_window[7:0]   = P0
+//       o_window[15:8]  = P1
+//       ...
+//       o_window[71:64] = P8
+//////////////////////////////////////////////////////////////////////////////////
 `default_nettype none
 module conv1_buf (
     input wire          i_clk,
