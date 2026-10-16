@@ -32,15 +32,15 @@ module conv1_buf (
     input wire          i_start,
     
     input wire          i_valid,
-    input wire [7:0]   i_pixel
+    input wire [7:0]    i_pixel
 
     output reg          o_valid,
     output reg [71:0]   o_window
 );
 
-    //Pixel position
-    reg [4:0] x_count;
-    reg [4:0] y_count;
+    //Pixel position, 0-27 (28x28x1), 16<27<32
+    reg [4:0] x_count; //col
+    reg [4:0] y_count; //row
 
     // Two line buffer
     // line_buf1[x] = pixel1 from y-1
