@@ -30,7 +30,7 @@ module round_shift_even (
     // Round-to-nearest-even:
     // remainder > 8  -> round upward
     // remainder == 8 -> round upward only when shifted is odd
-    assign round_up = (remainder > 4'sd8) || ((remainder == 4'sd8) && shifted[0] == 1'b1);
+    assign round_up = (remainder > 4'd8) || ((remainder == 4'd8) && shifted[0] == 1'b1);
 
     assign o_value = shifted + (round_up ? 32'sd1 : 32'sd0);
 
