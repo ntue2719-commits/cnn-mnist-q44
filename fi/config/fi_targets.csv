@@ -1,0 +1,10 @@
+target_id,class,module,hier_signal,width,bit_min,bit_max,semantic_role,notes
+CTL_0001,CTL,top_fsm,dut.u_top_fsm.state,3,0,2,top-level CNN phase control,"Primary FI smoke-test target; legal states 000..101"
+CTL_0002,CTL,top_fsm,dut.u_top_fsm.o_start_conv1,1,0,0,Conv1 launch pulse,"one-cycle control pulse"
+CTL_0003,CTL,top_fsm,dut.u_top_fsm.o_start_rd1,1,0,0,Feature Mem1 read launch pulse,"one-cycle control pulse"
+CTL_0004,CTL,top_fsm,dut.u_top_fsm.o_start_conv2,1,0,0,Conv2 launch pulse,"one-cycle control pulse"
+CTL_0005,CTL,top_fsm,dut.u_top_fsm.o_start_rd2,1,0,0,Feature Mem2 read launch pulse,"one-cycle control pulse"
+CTL_0006,CTL,top_fsm,dut.u_top_fsm.o_start_fc,1,0,0,FC launch pulse,"one-cycle control pulse"
+CTL_0007,CTL,top_fsm,dut.u_top_fsm.o_busy,1,0,0,top-level busy protocol state,"protocol-visible control state"
+CTL_0008,CTL,top_fsm,dut.u_top_fsm.o_valid,1,0,0,result-valid pulse,"protocol-visible one-cycle pulse"
+CTL_0009,CTL,top_fsm,dut.u_top_fsm.o_done,1,0,0,completion pulse,"protocol-visible one-cycle pulse"

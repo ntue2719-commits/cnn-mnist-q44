@@ -1,0 +1,2 @@
+scenario_id,sample_id,target_id,target_class,hier_signal,bit_index,injection_cycle,fault_type,injection_events,expected_pre_state,expected_fault_state,expected_primary_effect
+FI_SMOKE_0001,IMG0000,CTL_0001,CTL,dut.u_top_fsm.state,2,TBD,SEU_SINGLE_BIT,1,001,101,premature DONE / protocol violation
