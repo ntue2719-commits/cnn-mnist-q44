@@ -1,0 +1,34 @@
+{
+  "campaign_id": "CTL_SMOKE_V1",
+  "baseline_tag": "baseline_bitexact_phase1",
+  "clock_mhz": 100,
+  "nominal_latency_cycles": 1342,
+  "initiation_interval_cycles": 1343,
+  "timeout_cycles": 3000,
+  "fault_model": {
+    "type": "SEU_SINGLE_BIT",
+    "faults_per_inference": 1,
+    "reference_event": "accepted_i_start",
+    "injection_action": "single transient bit flip"
+  },
+  "workload": {
+    "sample_id": "IMG0000",
+    "input_file": "data/input.hex",
+    "prediction_file": "data/prediction.hex"
+  },
+  "campaign_scope": {
+    "target_class": "CTL",
+    "target_id": "CTL_0001",
+    "hier_signal": "dut.u_top_fsm.state",
+    "bit_index": 2,
+    "pre_state": "001",
+    "fault_state": "101"
+  },
+  "outcome_precedence": [
+    "NONCOMPLETION",
+    "PROTOCOL_VIOLATION",
+    "WRONG_LABEL",
+    "WRONG_LOGITS_SAME_LABEL",
+    "FINAL_OUTPUT_MATCH"
+  ]
+}
