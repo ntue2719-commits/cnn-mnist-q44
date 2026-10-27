@@ -1,2 +1,6 @@
-scenario_id,sample_id,target_id,target_class,hier_signal,bit_index,injection_cycle,fault_type,injection_events,expected_pre_state,expected_fault_state,expected_primary_effect
-FI_SMOKE_0001,IMG0000,CTL_0001,CTL,dut.u_top_fsm.state,2,TBD,SEU_SINGLE_BIT,1,001,101,premature DONE / protocol violation
+scenario_id,sample_id,target_id,target_class,hier_signal,bit_index,reference_event,injection_offset,fault_type,fault_events,expected_pre_state,expected_fault_state,purpose
+FI_CTL_SMOKE_0001,IMG0000,CTL_0001,CTL,dut.u_top_fsm.state,2,accepted_i_start,25,SEU_SINGLE_BIT,1,001,101,deterministic timing/reproducibility smoke test
+FI_CTL_SMOKE_0002,IMG0000,CTL_0001,CTL,dut.u_top_fsm.state,2,accepted_i_start,50,SEU_SINGLE_BIT,1,001,101,deterministic timing/reproducibility smoke test
+FI_CTL_SMOKE_0003,IMG0000,CTL_0001,CTL,dut.u_top_fsm.state,2,accepted_i_start,75,SEU_SINGLE_BIT,1,001,101,deterministic timing/reproducibility smoke test
+FI_CTL_SMOKE_0004,IMG0000,CTL_0001,CTL,dut.u_top_fsm.state,2,accepted_i_start,100,SEU_SINGLE_BIT,1,001,101,deterministic timing/reproducibility smoke test
+FI_CTL_SMOKE_0005,IMG0000,CTL_0001,CTL,dut.u_top_fsm.state,2,accepted_i_start,125,SEU_SINGLE_BIT,1,001,101,deterministic timing/reproducibility smoke test
