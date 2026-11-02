@@ -19,3 +19,26 @@ xsim.dir/
 Thumbs.db
 .vscode/
 .idea/
+
+# ================================
+# Python generated files
+# ================================
+__pycache__/
+*.pyc
+*.pyo
+
+# ================================
+# FI automation generated artifacts
+# ================================
+fi/results/automation_replay/
+fi/results/deterministic20*/
+
+# ================================
+# Vivado / XSim temporary files
+# ================================
+.Xil/
+*.jou
+*.pb
+*.wdb
+*.vcd
+*.vpd

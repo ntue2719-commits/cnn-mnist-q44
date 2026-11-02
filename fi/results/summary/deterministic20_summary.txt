@@ -1,0 +1,21 @@
+CNN_PEP RTL FI CAMPAIGN SUMMARY
+============================================================
+Total scenarios: 20
+
+Outcome distribution
+------------------------------------------------------------
+NONCOMPLETION                   0     0.000%
+PROTOCOL_VIOLATION              5    25.000%
+WRONG_LABEL                     1     5.000%
+WRONG_LOGITS_SAME_LABEL         5    25.000%
+FINAL_OUTPUT_MATCH              9    45.000%
+
+Harmful outcomes: 6/20 = 30.000%
+Definition: NONCOMPLETION + PROTOCOL_VIOLATION + WRONG_LABEL
+
+Per target class
+------------------------------------------------------------
+BUF      N=     5 harmful=     0 rate=0.000%
+CTL      N=     5 harmful=     5 rate=100.000%
+DAT      N=     5 harmful=     1 rate=20.000%
+MEM      N=     5 harmful=     0 rate=0.000%

@@ -103,29 +103,37 @@ def make_tcl(project: Path, row: dict[str, str], fileset: str) -> str:
     return (
         "# Generated for ONE existing CNN_PEP deterministic FI smoke scenario.\n"
         "# Read-only to DUT RTL; only simulation fileset properties are changed.\n"
+        "# A file-backed marker proves Tcl reached the end; stdout can close after $finish.\n"
+        "set cnn_pep_done_file \"[file rootname [info script]].done\"\n"
+        "catch {file delete -force -- $cnn_pep_done_file}\n"
         f"open_project {tcl_brace(project.resolve().as_posix())}\n"
         "if {[catch {\n"
         f"    set sim [get_filesets {tcl_brace(fileset)}]\n"
         "    if {[llength $sim] != 1} {error {Expected one simulation fileset}}\n"
         "    catch {close_sim -force}\n"
         f"    set_property top {spec['top']} $sim\n"
+        "    set_property xsim.compile.incremental false $sim\n"
         "    update_compile_order -fileset $sim\n"
         f"    set_property -name {{xsim.simulate.xsim.more_options}} -value {tcl_brace(' '.join(opts))} -objects $sim\n"
         "    launch_simulation\n"
         "    run all\n"
+        "    catch {close_sim -force}\n"
+        "    close_project\n"
+        "    set cnn_pep_f [open $cnn_pep_done_file w]\n"
+        "    puts $cnn_pep_f {CNN_PEP_RUNNER_TCL_COMPLETED}\n"
+        "    close $cnn_pep_f\n"
         "} err opts]} {\n"
-        "    puts stderr \"CNN_PEP_RUNNER_TCL_ERROR: $err\"\n"
+        "    catch {puts stderr \"CNN_PEP_RUNNER_TCL_ERROR: $err\"}\n"
         "    exit 1\n"
         "}\n"
-        "puts {CNN_PEP_RUNNER_TCL_COMPLETED}\n"
-        "catch {close_sim -force}\n"
-        "close_project\n"
         "exit 0\n"
     )
 
 
 def run_or_fail(cmd: list[str], cwd: Path, log_file: Path,
-                timeout: int) -> None:
+                timeout: int, done_file: Path) -> None:
+    # Never accept a stale .done from a prior attempt.
+    done_file.unlink(missing_ok=True)
     log_file.parent.mkdir(parents=True, exist_ok=True)
     with log_file.open("w", encoding="utf-8", errors="replace") as output:
         try:
@@ -139,8 +147,8 @@ def run_or_fail(cmd: list[str], cwd: Path, log_file: Path,
     contents = log_file.read_text(encoding="utf-8", errors="replace")
     if cp.returncode != 0:
         raise RuntimeError(f"Nonzero subprocess status {cp.returncode}; see {log_file}")
-    if "CNN_PEP_RUNNER_TCL_COMPLETED" not in contents:
-        raise RuntimeError(f"Tcl completion marker missing; see {log_file}")
+    if not done_file.is_file() or done_file.read_text(encoding="utf-8").strip() != "CNN_PEP_RUNNER_TCL_COMPLETED":
+        raise RuntimeError(f"Tcl did not write its completion file: {done_file}; see {log_file}")
     if "FI_RESULT_V2," not in contents or "FI_DISABLED_CONTROL_PASS" not in contents:
         raise RuntimeError(f"FI verification markers missing; see {log_file}")
 
@@ -225,7 +233,8 @@ def main() -> None:
             if not args.execute:
                 print("  " + subprocess.list2cmdline(cmd))
                 continue
-            run_or_fail(cmd, project.parent, log_file, args.timeout_seconds)
+            run_or_fail(cmd, project.parent, log_file, args.timeout_seconds,
+                        tcl_file.with_suffix(".done"))
             print(f"  XSim output captured -> {log_file}")
         if args.execute:
             parsed = run_dir / "four_class_smoke_results.csv"
