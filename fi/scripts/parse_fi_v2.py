@@ -44,7 +44,8 @@ def parse_one(log_path: Path) -> dict[str, str]:
     generic_pass = 'CNN_PEP FI CAMPAIGN V2: PASS' in content
     mem_pass = 'CNN_PEP FI MEM1 SMOKE: PASS' in content
     buf_pass = 'CNN_PEP FI BUF SMOKE: PASS' in content
-    if not (generic_pass or mem_pass or buf_pass):
+    dat_pass = 'CNN_PEP FI DAT SMOKE: PASS' in content
+    if not (generic_pass or mem_pass or buf_pass or dat_pass):
         raise ValueError(f'{log_path}: missing verified campaign/smoke PASS marker')
     if 'FI_DISABLED_CONTROL_PASS' not in content:
         raise ValueError(f'{log_path}: missing fault-free control PASS marker')
@@ -67,6 +68,18 @@ def parse_one(log_path: Path) -> dict[str, str]:
                        'FI_BUF_CONSUME_PASS', 'FI_BUF_LIFETIME_PASS'):
             if marker not in content:
                 raise ValueError(f'{log_path}: missing BUF evidence {marker}')
+    if dat_pass:
+        if data['target_id'] != 'DAT_0010' or data['target_class'] != 'DAT' or data['bit_index'] != '0':
+            raise ValueError(f'{log_path}: DAT smoke PASS marker but wrong target/bit')
+        for marker in ('FI_DAT_WINDOW_FOUND', 'FI_DAT_STORAGE_PASS',
+                       'FI_DAT_CONSUME_PASS', 'FI_DAT_ARGMAX_PASS',
+                       'FI_DAT_LIFETIME_PASS'):
+            if marker not in content:
+                raise ValueError(f'{log_path}: missing DAT evidence {marker}')
+        if (data['outcome'] != 'WRONG_LOGITS_SAME_LABEL' or
+                data['first_bad_stage'] != 'FC' or
+                data['logits_mismatch'] != '1' or data['prediction'] != '0'):
+            raise ValueError(f'{log_path}: DAT smoke outcome/checkpoint mismatch')
     for key in NUMERIC:
         try:
             int(data[key])
