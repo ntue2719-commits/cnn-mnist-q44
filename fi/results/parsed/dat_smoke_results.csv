@@ -1,0 +1,2 @@
+scenario_id,sample_id,target_id,target_class,bit_index,injection_offset,requested_cycle,actual_cycle,fault_events,injection_ok,completion_cycle,first_done_pixels,pixels_driven,pixels_accepted,pool1_words,pool2_words,fc_valid_count,argmax_count,done_count,protocol_ok,pool1_mismatch,pool2_mismatch,logits_mismatch,prediction,first_bad_stage,outcome
+FI_DAT_0001,IMG0000,DAT_0010,DAT,0,1340,1343,1343,1,1,1345,784,784,784,169,25,1,1,1,1,0,0,1,0,FC,WRONG_LOGITS_SAME_LABEL

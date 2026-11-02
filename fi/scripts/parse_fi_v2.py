@@ -118,7 +118,7 @@ def main() -> None:
     ap.add_argument('--out', required=True, type=Path)
     args = ap.parse_args()
 
-    with args.scenarios.open(newline='', encoding='utf-8') as f:
+    with args.scenarios.open(newline='', encoding='utf-8-sig') as f:
         scenarios = {r['scenario_id']: r for r in csv.DictReader(f)
                      if (r.get('scenario_id') or '').strip()}
     if not scenarios:
