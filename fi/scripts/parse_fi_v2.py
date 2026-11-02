@@ -41,12 +41,32 @@ def parse_one(log_path: Path) -> dict[str, str]:
              if line.strip().startswith('FI_RESULT_V2,')]
     if len(lines) != 1:
         raise ValueError(f'{log_path}: expected exactly one FI_RESULT_V2; got {len(lines)}')
-    if 'CNN_PEP FI CAMPAIGN V2: PASS' not in content:
-        raise ValueError(f'{log_path}: missing campaign PASS marker')
+    generic_pass = 'CNN_PEP FI CAMPAIGN V2: PASS' in content
+    mem_pass = 'CNN_PEP FI MEM1 SMOKE: PASS' in content
+    buf_pass = 'CNN_PEP FI BUF SMOKE: PASS' in content
+    if not (generic_pass or mem_pass or buf_pass):
+        raise ValueError(f'{log_path}: missing verified campaign/smoke PASS marker')
+    if 'FI_DISABLED_CONTROL_PASS' not in content:
+        raise ValueError(f'{log_path}: missing fault-free control PASS marker')
     rec = next(csv.reader([lines[0]]))
     if rec[0] != 'FI_RESULT_V2' or len(rec) != len(FIELDS) + 1:
         raise ValueError(f'{log_path}: malformed record, {len(rec)} columns, expected {len(FIELDS)+1}')
     data = dict(zip(FIELDS, rec[1:]))
+    # Smoke-specific proof markers must agree with the declared target.
+    if mem_pass:
+        if data['target_id'] != 'MEM_0001' or data['target_class'] != 'MEM':
+            raise ValueError(f'{log_path}: MEM1 smoke PASS marker but wrong target')
+        for marker in ('FI_MEM1_WINDOW_PASS', 'FI_MEM1_READ_PASS',
+                       'FI_MEM1_LIFETIME_PASS'):
+            if marker not in content:
+                raise ValueError(f'{log_path}: missing MEM1 evidence {marker}')
+    if buf_pass:
+        if data['target_id'] != 'BUF_0030' or data['target_class'] != 'BUF':
+            raise ValueError(f'{log_path}: BUF smoke PASS marker but wrong target')
+        for marker in ('FI_BUF_WINDOW_FOUND', 'FI_BUF_WINDOW_PASS',
+                       'FI_BUF_CONSUME_PASS', 'FI_BUF_LIFETIME_PASS'):
+            if marker not in content:
+                raise ValueError(f'{log_path}: missing BUF evidence {marker}')
     for key in NUMERIC:
         try:
             int(data[key])
