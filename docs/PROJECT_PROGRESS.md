@@ -536,3 +536,43 @@ Work from repo root. Keep the known-PASS testbenches as regression references; d
 ---
 
 **Final handoff line:** P0 CNN is frozen; **CTL, BUF, MEM, DAT deterministic 1-bit FI have all PASSed in XSim; the 4 resulting logs have PASSed Python parsing/summary. The exact next engineering gate is an automated four-class Vivado/XSim replay runner, followed by a methodologically valid 20-scenario directed matrix, then the 400-scenario pilot.**
+
+### Milestone: Automated Four-Class FI Replay — PASS (2026-11-03)
+
+**Environment**
+- Editor: Visual Studio Code, integrated PowerShell terminal
+- Simulator: Vivado 2022.2 / XSim
+- Vivado executable: `D:/vivado_2022.2/Vivado/2022.2/bin/vivado.bat`
+- Vivado project: `D:/Share_Data_ubuntu_window/Github/Simulation/Simulation.xpr`
+- Runner: `fi/scripts/run_four_class_smoke.py`
+- Simulation fileset: `sim_1`
+
+**Executed regression**
+- Four locked scenarios: `FI_CTL_0005`, `FI_MEM1_0001`, `FI_BUF_0001`, `FI_DAT_0001`
+- Repeats: 2
+- Total Vivado/XSim executions: 8
+- Validated FI results: 4 per repeat, 8 total
+- Parser: PASS
+- Summary generation: PASS
+- Normalized CSV replay comparison: byte-identical
+- Overall runner verdict: PASS
+
+**Deterministic evidence**
+
+SHA256 for both normalized CSV files:
+
+`ca0b90eb98cfa30510e37f8400ab789ec02ed09cb0b5434be01968cc9af23c47`
+
+**Artifacts**
+- `fi/results/automation_replay/repeat_01/logs/`
+- `fi/results/automation_replay/repeat_01/four_class_smoke_results.csv`
+- `fi/results/automation_replay/repeat_01/four_class_smoke_summary.txt`
+- `fi/results/automation_replay/repeat_02/logs/`
+- `fi/results/automation_replay/repeat_02/four_class_smoke_results.csv`
+- `fi/results/automation_replay/repeat_02/four_class_smoke_summary.txt`
+
+**Status and limitations**
+
+The automated XSim execution, log capture, parser validation, summary generation and two-repeat CSV comparison all passed. This verifies the automation mechanism for the four locked scenarios. It does not establish fault coverage, statistically representative vulnerability rates or correctness for untested injection sites.
+
+**NEXT:** Extend the validated automation to 20 deterministic FI scenarios (5 per class), then implement reproducible randomized pilot sampling with explicit eligibility and injection-coverage checks. Preserve the P0 RTL, timing, resources and golden-model baseline.
