@@ -1,0 +1,81 @@
+target_id,class,module,hier_signal,width,bit_min,bit_max,semantic_role,notes
+CTL_0001,CTL,top_fsm,dut.u_top_fsm.state,3,0,2,top-level CNN phase control,Primary FI smoke-test target; legal states 000..101
+CTL_0002,CTL,top_fsm,dut.u_top_fsm.o_start_conv1,1,0,0,Conv1 launch pulse,one-cycle control pulse
+CTL_0003,CTL,top_fsm,dut.u_top_fsm.o_start_rd1,1,0,0,Feature Mem1 read launch pulse,one-cycle control pulse
+CTL_0004,CTL,top_fsm,dut.u_top_fsm.o_start_conv2,1,0,0,Conv2 launch pulse,one-cycle control pulse
+CTL_0005,CTL,top_fsm,dut.u_top_fsm.o_start_rd2,1,0,0,Feature Mem2 read launch pulse,one-cycle control pulse
+CTL_0006,CTL,top_fsm,dut.u_top_fsm.o_start_fc,1,0,0,FC launch pulse,one-cycle control pulse
+CTL_0007,CTL,top_fsm,dut.u_top_fsm.o_busy,1,0,0,top-level busy protocol state,protocol-visible control state
+CTL_0008,CTL,top_fsm,dut.u_top_fsm.o_valid,1,0,0,result-valid pulse,protocol-visible one-cycle pulse
+CTL_0009,CTL,top_fsm,dut.u_top_fsm.o_done,1,0,0,completion pulse,protocol-visible one-cycle pulse
+CTL_0010,CTL,u_conv1_layer,dut.u_conv1_layer.r_busy,1,0,0,Conv1 active flag,Declared sequential RTL state; eligibility window pending
+CTL_0011,CTL,u_conv2_layer,dut.u_conv2_layer.r_busy,1,0,0,Conv2 active flag,Declared sequential RTL state; eligibility window pending
+CTL_0012,CTL,u_feature_mem1,dut.u_feature_mem1.wr_ptr,8,0,7,Mem1 write pointer,Declared sequential RTL state; eligibility window pending
+CTL_0013,CTL,u_feature_mem1,dut.u_feature_mem1.rd_ptr,8,0,7,Mem1 read pointer,Declared sequential RTL state; eligibility window pending
+CTL_0014,CTL,u_feature_mem1,dut.u_feature_mem1.rd_active,1,0,0,Mem1 reader enable,Declared sequential RTL state; eligibility window pending
+CTL_0015,CTL,u_feature_mem2,dut.u_feature_mem2.wr_addr,5,0,4,Mem2 write pointer,Declared sequential RTL state; eligibility window pending
+CTL_0016,CTL,u_feature_mem2,dut.u_feature_mem2.rd_addr,5,0,4,Mem2 read pointer,Declared sequential RTL state; eligibility window pending
+CTL_0017,CTL,u_feature_mem2,dut.u_feature_mem2.wr_full,1,0,0,Mem2 write-full flag,Declared sequential RTL state; eligibility window pending
+CTL_0018,CTL,u_feature_mem2,dut.u_feature_mem2.rd_active,1,0,0,Mem2 reader enable,Declared sequential RTL state; eligibility window pending
+CTL_0019,CTL,u_fully_connected,dut.u_fully_connected.cycle_count,5,0,4,FC loop/ROM cycle count,Declared sequential RTL state; eligibility window pending
+CTL_0020,CTL,u_fully_connected,dut.u_fully_connected.r_busy,1,0,0,FC active flag,Declared sequential RTL state; eligibility window pending
+CTL_0021,CTL,u_pool1_reorder,dut.u_conv1_layer.u_pool1_reorder.state,2,0,1,Pool1 reorder FSM,Declared sequential RTL state; eligibility window pending
+CTL_0022,CTL,u_pool2_buf,dut.u_conv2_layer.u_pool2_buf.state,2,0,1,Pool2 buffer FSM,Declared sequential RTL state; eligibility window pending
+CTL_0023,CTL,u_pool2_reorder,dut.u_conv2_layer.u_pool2_reorder.state,2,0,1,Pool2 reorder FSM,Declared sequential RTL state; eligibility window pending
+CTL_0024,CTL,u_pool1_buf,dut.u_conv1_layer.u_pool1_buf.x_count,5,0,4,Pool1 stream x coordinate,Declared sequential RTL state; eligibility window pending
+CTL_0025,CTL,u_pool1_buf,dut.u_conv1_layer.u_pool1_buf.y_count,5,0,4,Pool1 stream y coordinate,Declared sequential RTL state; eligibility window pending
+BUF_0001,BUF,u_pool1_buf,dut.u_conv1_layer.u_pool1_buf.line_buf[0],32,0,31,Pool1 previous-row data word 0,Declared sequential RTL storage; ensure written before injection and consumed before overwrite
+BUF_0002,BUF,u_pool1_buf,dut.u_conv1_layer.u_pool1_buf.line_buf[13],32,0,31,Pool1 previous-row data word 13,Declared sequential RTL storage; ensure written before injection and consumed before overwrite
+BUF_0003,BUF,u_pool1_buf,dut.u_conv1_layer.u_pool1_buf.line_buf[25],32,0,31,Pool1 previous-row data word 25,Declared sequential RTL storage; ensure written before injection and consumed before overwrite
+BUF_0004,BUF,u_pool1_buf,dut.u_conv1_layer.u_pool1_buf.prev_top,32,0,31,Pool1 top-left staging data,Declared sequential RTL storage; ensure written before injection and consumed before overwrite
+BUF_0005,BUF,u_pool1_buf,dut.u_conv1_layer.u_pool1_buf.prev_curr,32,0,31,Pool1 current-row staging data,Declared sequential RTL storage; ensure written before injection and consumed before overwrite
+BUF_0006,BUF,u_pool1_reorder,dut.u_conv1_layer.u_pool1_reorder.reorder_mem[0],8,0,7,Pool1 canonical reorder byte 0,Declared sequential RTL storage; ensure written before injection and consumed before overwrite
+BUF_0007,BUF,u_pool1_reorder,dut.u_conv1_layer.u_pool1_reorder.reorder_mem[337],8,0,7,Pool1 canonical reorder byte 337,Declared sequential RTL storage; ensure written before injection and consumed before overwrite
+BUF_0008,BUF,u_pool1_reorder,dut.u_conv1_layer.u_pool1_reorder.reorder_mem[675],8,0,7,Pool1 canonical reorder byte 675,Declared sequential RTL storage; ensure written before injection and consumed before overwrite
+BUF_0009,BUF,u_pool2_buf,dut.u_conv2_layer.u_pool2_buf.spatial_mem[0],64,0,63,Pool2 captured spatial word 0,Declared sequential RTL storage; ensure written before injection and consumed before overwrite
+BUF_0010,BUF,u_pool2_buf,dut.u_conv2_layer.u_pool2_buf.spatial_mem[60],64,0,63,Pool2 captured spatial word 60,Declared sequential RTL storage; ensure written before injection and consumed before overwrite
+BUF_0011,BUF,u_pool2_buf,dut.u_conv2_layer.u_pool2_buf.spatial_mem[120],64,0,63,Pool2 captured spatial word 120,"Declared sequential RTL storage; ensure written before injection and consumed before overwrite; spatial (10,10) unused by stride-2 5x5 pool windows (negative control)"
+BUF_0012,BUF,u_pool2_reorder,dut.u_conv2_layer.u_pool2_reorder.reorder_mem[0],8,0,7,Pool2 canonical reorder byte 0,Declared sequential RTL storage; ensure written before injection and consumed before overwrite
+BUF_0013,BUF,u_pool2_reorder,dut.u_conv2_layer.u_pool2_reorder.reorder_mem[100],8,0,7,Pool2 canonical reorder byte 100,Declared sequential RTL storage; ensure written before injection and consumed before overwrite
+BUF_0014,BUF,u_pool2_reorder,dut.u_conv2_layer.u_pool2_reorder.reorder_mem[199],8,0,7,Pool2 canonical reorder byte 199,Declared sequential RTL storage; ensure written before injection and consumed before overwrite
+BUF_0015,BUF,u_pool1_buf,dut.u_conv1_layer.u_pool1_buf.o_window,128,0,127,Pool1 registered 2x2 window,Declared sequential RTL storage; ensure written before injection and consumed before overwrite
+BUF_0016,BUF,u_pool2_buf,dut.u_conv2_layer.u_pool2_buf.o_window,256,0,255,Pool2 registered 2x2 window,Declared sequential RTL storage; ensure written before injection and consumed before overwrite
+MEM_0001,MEM,u_feature_mem1,dut.u_feature_mem1.mem[0],32,0,31,Mem1 canonical Pool1 word 0,Declared writable feature storage; inject after write and before read; validate persistent corruption
+MEM_0002,MEM,u_feature_mem1,dut.u_feature_mem1.mem[84],32,0,31,Mem1 canonical Pool1 word 84,Declared writable feature storage; inject after write and before read; validate persistent corruption
+MEM_0003,MEM,u_feature_mem1,dut.u_feature_mem1.mem[168],32,0,31,Mem1 canonical Pool1 word 168,Declared writable feature storage; inject after write and before read; validate persistent corruption
+MEM_0004,MEM,u_feature_mem2,dut.u_feature_mem2.mem[0],64,0,63,Mem2 canonical Pool2 word 0,Declared writable feature storage; inject after write and before read; validate persistent corruption
+MEM_0005,MEM,u_feature_mem2,dut.u_feature_mem2.mem[12],64,0,63,Mem2 canonical Pool2 word 12,Declared writable feature storage; inject after write and before read; validate persistent corruption
+MEM_0006,MEM,u_feature_mem2,dut.u_feature_mem2.mem[24],64,0,63,Mem2 canonical Pool2 word 24,Declared writable feature storage; inject after write and before read; validate persistent corruption
+DAT_0001,DAT,u_conv1_calc,dut.u_conv1_layer.u_conv1_calc.o_acc,128,0,127,Conv1 4x32-bit registered Q8.8 MAC outputs,Sequential data state; inject after data capture and before downstream sampling
+DAT_0002,DAT,u_conv1_quant_relu,dut.u_conv1_layer.u_conv1_quant_relu.o_data,32,0,31,Conv1 4x8-bit registered quant/ReLU outputs,Sequential data state; inject after data capture and before downstream sampling
+DAT_0003,DAT,u_pool1,dut.u_conv1_layer.u_pool1.o_data,32,0,31,Pool1 registered 4x8-bit max values,Sequential data state; inject after data capture and before downstream sampling
+DAT_0004,DAT,u_conv2_calc,dut.u_conv2_layer.u_conv2_calc.o_acc,256,0,255,Conv2 8x32-bit registered Q8.8 MAC outputs,Sequential data state; inject after data capture and before downstream sampling
+DAT_0005,DAT,u_conv2_quant_relu,dut.u_conv2_layer.u_conv2_quant_relu.o_data,64,0,63,Conv2 8x8-bit registered quant/ReLU outputs,Sequential data state; inject after data capture and before downstream sampling
+DAT_0006,DAT,u_pool2,dut.u_conv2_layer.u_pool2.o_data,64,0,63,Pool2 registered 8x8-bit max values,Sequential data state; inject after data capture and before downstream sampling
+DAT_0007,DAT,u_fully_connected,dut.u_fully_connected.accumulator[0],32,0,31,FC class-0 sequential Q8.8 accumulator,Sequential data state; inject after data capture and before downstream sampling
+DAT_0008,DAT,u_fully_connected,dut.u_fully_connected.accumulator[5],32,0,31,FC class-5 sequential Q8.8 accumulator,Sequential data state; inject after data capture and before downstream sampling
+DAT_0009,DAT,u_fully_connected,dut.u_fully_connected.accumulator[9],32,0,31,FC class-9 sequential Q8.8 accumulator,Sequential data state; inject after data capture and before downstream sampling
+DAT_0010,DAT,u_fully_connected,dut.u_fully_connected.o_logits,320,0,319,FC 10x32-bit registered raw Q8.8 logits,Sequential data state; inject after data capture and before downstream sampling
+CTL_0026,CTL,u_conv1_buf,dut.u_conv1_layer.u_conv1_buf.x_count,5,0,4,Conv1 input horizontal pixel counter,advance only on accepted i_valid; RTL source/hierarchy checked; XSim access/injection untested
+CTL_0027,CTL,u_conv1_buf,dut.u_conv1_layer.u_conv1_buf.y_count,5,0,4,Conv1 input vertical pixel counter,advance on wrapped x_count; RTL source/hierarchy checked; XSim access/injection untested
+CTL_0028,CTL,u_conv2_buf,dut.u_conv2_layer.u_conv2_buf.state,2,0,1,Conv2 capture/drain FSM,STATE_IDLE/CAPTURE/DRAIN_WAIT/DRAIN; RTL source/hierarchy checked; XSim access/injection untested
+CTL_0029,CTL,u_conv2_buf,dut.u_conv2_layer.u_conv2_buf.capture_word_count,8,0,7,Conv2 canonical feature capture counter,0..168; advances only on i_valid; RTL source/hierarchy checked; XSim access/injection untested
+CTL_0030,CTL,u_conv2_buf,dut.u_conv2_layer.u_conv2_buf.out_y,4,0,3,Conv2 output window row counter,DRAIN active 0..10; RTL source/hierarchy checked; XSim access/injection untested
+CTL_0031,CTL,u_conv2_buf,dut.u_conv2_layer.u_conv2_buf.out_x,4,0,3,Conv2 output window column counter,DRAIN active 0..10; RTL source/hierarchy checked; XSim access/injection untested
+BUF_0017,BUF,u_conv1_buf,dut.u_conv1_layer.u_conv1_buf.line_buf1[0],8,0,7,Conv1 previous row byte x=0,inject after valid row write and before next dependent window; no RAM content reset; RTL source/hierarchy checked; XSim access/injection untested
+BUF_0018,BUF,u_conv1_buf,dut.u_conv1_layer.u_conv1_buf.line_buf1[14],8,0,7,Conv1 previous row byte x=14,inject after valid row write and before next dependent window; no RAM content reset; RTL source/hierarchy checked; XSim access/injection untested
+BUF_0019,BUF,u_conv1_buf,dut.u_conv1_layer.u_conv1_buf.line_buf1[27],8,0,7,Conv1 previous row byte x=27,inject after valid row write and before next dependent window; no RAM content reset; RTL source/hierarchy checked; XSim access/injection untested
+BUF_0020,BUF,u_conv1_buf,dut.u_conv1_layer.u_conv1_buf.line_buf2[0],8,0,7,Conv1 two rows earlier byte x=0,inject after valid row write and before next dependent window; no RAM content reset; RTL source/hierarchy checked; XSim access/injection untested
+BUF_0021,BUF,u_conv1_buf,dut.u_conv1_layer.u_conv1_buf.line_buf2[14],8,0,7,Conv1 two rows earlier byte x=14,inject after valid row write and before next dependent window; no RAM content reset; RTL source/hierarchy checked; XSim access/injection untested
+BUF_0022,BUF,u_conv1_buf,dut.u_conv1_layer.u_conv1_buf.line_buf2[27],8,0,7,Conv1 two rows earlier byte x=27,inject after valid row write and before next dependent window; no RAM content reset; RTL source/hierarchy checked; XSim access/injection untested
+BUF_0023,BUF,u_conv1_buf,dut.u_conv1_layer.u_conv1_buf.top_d1,8,0,7,Conv1 horizontal shift register top_d1,inject before dependent 3x3 o_window assembly; RTL source/hierarchy checked; XSim access/injection untested
+BUF_0024,BUF,u_conv1_buf,dut.u_conv1_layer.u_conv1_buf.top_d2,8,0,7,Conv1 horizontal shift register top_d2,inject before dependent 3x3 o_window assembly; RTL source/hierarchy checked; XSim access/injection untested
+BUF_0025,BUF,u_conv1_buf,dut.u_conv1_layer.u_conv1_buf.mid_d1,8,0,7,Conv1 horizontal shift register mid_d1,inject before dependent 3x3 o_window assembly; RTL source/hierarchy checked; XSim access/injection untested
+BUF_0026,BUF,u_conv1_buf,dut.u_conv1_layer.u_conv1_buf.mid_d2,8,0,7,Conv1 horizontal shift register mid_d2,inject before dependent 3x3 o_window assembly; RTL source/hierarchy checked; XSim access/injection untested
+BUF_0027,BUF,u_conv1_buf,dut.u_conv1_layer.u_conv1_buf.bot_d1,8,0,7,Conv1 horizontal shift register bot_d1,inject before dependent 3x3 o_window assembly; RTL source/hierarchy checked; XSim access/injection untested
+BUF_0028,BUF,u_conv1_buf,dut.u_conv1_layer.u_conv1_buf.bot_d2,8,0,7,Conv1 horizontal shift register bot_d2,inject before dependent 3x3 o_window assembly; RTL source/hierarchy checked; XSim access/injection untested
+BUF_0029,BUF,u_conv1_buf,dut.u_conv1_layer.u_conv1_buf.o_window,72,0,71,Conv1 registered 3x3 input window,one-cycle producer-consumer handoff; RTL source/hierarchy checked; XSim access/injection untested
+BUF_0030,BUF,u_conv2_buf,dut.u_conv2_layer.u_conv2_buf.feature_mem[0],8,0,7,Conv2 internal canonical byte capture index 0,inject after CAPTURE write and before DRAIN dependent read; RTL source/hierarchy checked; XSim access/injection untested
+BUF_0031,BUF,u_conv2_buf,dut.u_conv2_layer.u_conv2_buf.feature_mem[337],8,0,7,Conv2 internal canonical byte capture index 337,inject after CAPTURE write and before DRAIN dependent read; RTL source/hierarchy checked; XSim access/injection untested
+BUF_0032,BUF,u_conv2_buf,dut.u_conv2_layer.u_conv2_buf.feature_mem[675],8,0,7,Conv2 internal canonical byte capture index 675,inject after CAPTURE write and before DRAIN dependent read; RTL source/hierarchy checked; XSim access/injection untested
+BUF_0033,BUF,u_conv2_buf,dut.u_conv2_layer.u_conv2_buf.o_window,288,0,287,Conv2 registered 3x3x4 input window,inject after DRAIN window assembly and before Conv2 calculator samples; RTL source/hierarchy checked; XSim access/injection untested
