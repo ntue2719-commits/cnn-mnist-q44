@@ -34,7 +34,8 @@ ELIGIBLE_STATUSES = {
     'MEM': 'WRITE_READ_CONSUME_WINDOW',
     'BUF': 'BUF_WRITE_CONSUME_WINDOW',
 }
-COLUMNS = ('target_id', 'class', 'offset_a', 'offset_b',
+COLUMNS = ('target_id', 'class', 'bit_index_a', 'bit_index_b',
+           'offset_a', 'offset_b',
            'observed_write_offsets', 'observed_read_offsets', 'status_a', 'status_b',
            'observed_active_count', 'observed_produce_count',
            'observed_consume_count', 'evidence_schema')
@@ -124,6 +125,7 @@ def assess(plan: list[dict[str, str]],
             statuses.append(check)
         report.append({
             'target_id': target, 'class': cls,
+            'bit_index_a': p['bit_index'], 'bit_index_b': p['bit_index_b'],
             'offset_a': str(a), 'offset_b': str(b),
             'observed_write_offsets': ';'.join(map(str, writes)),
             'observed_read_offsets': ';'.join(map(str, reads)),
