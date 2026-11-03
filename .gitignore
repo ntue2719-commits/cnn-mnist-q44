@@ -45,3 +45,31 @@ fi/results/deterministic20*/
 data/MNIST/
 fi/results/pilot400_*/
 **/__pycache__/
+
+# BEGIN CNN_PEP LOCAL-ONLY
+# Keep scientific scenario, configuration, history, and result evidence visible.
+# Ignore only local tool output, backups, and disposable debug helpers.
+/.local-backup/
+/fi.zip
+/diag_xsim_plusargs.ps1
+/diagnose_pilot400_xsim.ps1
+/fi/results/*.cmd
+/fi/results/*.console.txt
+/fi/results/diag_*.tcl
+/fi/results/inspect_*.tcl
+/fi/results/reset_*.tcl
+/fi/results/xsim_*_probe.tcl
+/fi/results/xsim_*_test.tcl
+/fi/results/xsim_*_minimal.tcl
+/fi/results/pilot400_direct_run.tcl
+/fi/results/xsim_img0000_control.tcl
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.venv/
+.Xil/
+*.wdb
+*.wcfg
+*.jou
+*.pb
+# END CNN_PEP LOCAL-ONLY
