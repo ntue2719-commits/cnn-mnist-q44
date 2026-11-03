@@ -42,3 +42,6 @@ fi/results/deterministic20*/
 *.wdb
 *.vcd
 *.vpd
+data/MNIST/
+fi/results/pilot400_*/
+**/__pycache__/
