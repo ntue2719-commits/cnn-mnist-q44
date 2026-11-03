@@ -193,14 +193,17 @@ class ProfileV2Tests(unittest.TestCase):
 
     def test_dat_producer_before_exact_consumer_edge(self):
         # DAT_0010: FC registers logits at offset1339; ArgMax consumes at
-        # offset1340. The second configured offset1341 is NOT a handoff.
+        # offset1340. The original B=1341 is invalid; the approved refreeze
+        # has B=1340 at a DIFFERENT bit of the SAME stored logits register.
         events=[self.ev('PRODUCE','DAT_0010',1339),
                 self.ev('CONSUME','DAT_0010',1340),
                 self.ev('FC_VALID','DAT_0010',1340)]
         r=assess(self.target('DAT_0010'),events)[0]
         self.assertEqual(r['status_a'],'DAT_HANDOFF_AT_EDGE')
-        self.assertEqual(r['status_b'],'FAIL_DAT_HANDOFF')
-        self.assertFalse(timing_gate_pass([r]))
+        original_b=int(self.target('DAT_0010')[0]['offset_b'])
+        self.assertEqual(r['status_b'],
+                         'DAT_HANDOFF_AT_EDGE' if original_b==1340 else 'FAIL_DAT_HANDOFF')
+        self.assertEqual(timing_gate_pass([r]),original_b==1340)
 
     def test_dat_producer_not_on_consumer_edge(self):
         events=[self.ev('PRODUCE','DAT_0004',1200),
@@ -333,5 +336,335 @@ class ProfileV2Tests(unittest.TestCase):
                       'FI_PROFILE_EVENT,CONSUME,BUF_0007',
                       'FI_PROFILE_EVENT,CONSUME,MEM_0005'):
             self.assertIn(token,tb)
+
+
+
+class Dat0010BitPairPolicyTests(unittest.TestCase):
+    """Offline contract tests: fake marker strings are NOT real XSim evidence."""
+    def test_legacy_row_0381_0382_remains_original_until_explicit_refreeze(self):
+        plans=load_plan(REPO/'fi/config/pilot400_targets.csv',
+                        REPO/'fi/config/fi_targets_candidates_v2.csv')
+        rows=expected_rows(plans)
+        self.assertEqual((rows[380]['bit_index'],rows[380]['injection_offset']),('0','1340'))
+        # Both the original frozen plan and its later versioned refreeze
+        # must be supported by the SAME test suite.
+        self.assertIn((rows[381]['bit_index'],rows[381]['injection_offset']),
+                      {('0','1341'),('1','1340')})
+
+    def test_extended_policy_has_unique_bit_time_tuples_at_one_handoff(self):
+        from refreeze_pilot400_dat0010 import proposed_rows
+        old=load_plan(REPO/'fi/config/pilot400_targets.csv',
+                      REPO/'fi/config/fi_targets_candidates_v2.csv')
+        target=next(p for p in old if p['target_id']=='DAT_0010')
+        if target['bit_index_b']=='1' and target['offset_b']=='1340':
+            plans,rows=old,expected_rows(old)
+        else:
+            plans,rows=proposed_rows(REPO)
+        self.assertEqual(len(rows),400)
+        self.assertEqual((rows[380]['bit_index'],rows[380]['injection_offset']),('0','1340'))
+        self.assertEqual((rows[381]['bit_index'],rows[381]['injection_offset']),('1','1340'))
+        self.assertEqual(rows[381]['scenario_id'],'FI_P400_0382')
+        before=expected_rows(load_plan(REPO/'fi/config/pilot400_targets.csv',
+                              REPO/'fi/config/fi_targets_candidates_v2.csv'))
+        if target['bit_index_b']=='1':
+            self.assertEqual(before,rows)  # post-refreeze regression
+        else:
+            self.assertEqual(sum(a!=b for a,b in zip(before,rows)),10)
+        self.assertEqual(len({tuple(r[k] for k in FIELDS[1:]) for r in rows}),400)
+        self.assertEqual(sum(r['target_class']=='DAT' for r in rows),100)
+
+    def test_same_cycle_same_bit_fails(self):
+        from pilot400_common import PLAN_FIELDS
+        with tempfile.TemporaryDirectory() as tmp:
+            p=Path(tmp)/'source.csv'
+            rows=read_csv(REPO/'fi/config/pilot400_targets.csv',PLAN_FIELDS)
+            for r in rows:
+                if r['target_id']=='DAT_0010':
+                    r['offset_b']='1340'
+            write_csv(p,PLAN_FIELDS,rows)
+            with self.assertRaisesRegex(ValueError,'Duplicate bit/time tuple'):
+                load_plan(p,REPO/'fi/config/fi_targets_candidates_v2.csv')
+
+    def test_equal_cycle_other_target_is_forbidden_even_with_other_bit(self):
+        from pilot400_common import PLAN_FIELDS
+        with tempfile.TemporaryDirectory() as tmp:
+            p=Path(tmp)/'source.csv'
+            rows=read_csv(REPO/'fi/config/pilot400_targets.csv',PLAN_FIELDS)
+            for r in rows:
+                r['bit_index_b']=r['bit_index']
+                if r['target_id']=='CTL_0001':
+                    r['bit_index_b']='1'
+                    r['offset_b']=r['offset_a']
+            cols=PLAN_FIELDS[:3]+('bit_index_b',)+PLAN_FIELDS[3:]
+            write_csv(p,cols,rows)
+            with self.assertRaisesRegex(ValueError,'unapproved equal-offset'):
+                load_plan(p,REPO/'fi/config/fi_targets_candidates_v2.csv')
+
+    def test_bit1_probe_value_aware_contract(self):
+        from probe_pilot400_dat0010_bit1 import (PROBE_ROW,validate_probe_result)
+        r=dict(PROBE_ROW)
+        r.update(fault_events='1',injection_ok='1',requested_cycle='1343',
+                 actual_cycle='1343',outcome='WRONG_LOGITS_SAME_LABEL',
+                 first_bad_stage='FC',protocol_ok='1',logits_mismatch='1')
+        marker='FI_DAT_ARGMAX_CONSUME cycle=1343 logit0=00000ac4 golden0=00000ac6 mismatched_classes=1\n'
+        witness=validate_probe_result(r,marker)
+        self.assertEqual(witness['argmax_logit0'],'00000ac4')
+        with self.assertRaisesRegex(ValueError,'XOR'):
+            validate_probe_result(r,marker.replace('00000ac4','00000ac7'))
+        r['bit_index']='0'
+        with self.assertRaisesRegex(ValueError,'bit_index'):
+            validate_probe_result(r,marker)
+
+    def test_profile_identifies_single_consumer_for_dat0010(self):
+        from refreeze_pilot400_dat0010 import validate_handoff
+        from profile_pilot400 import SCHEMA_MARKER
+        with tempfile.TemporaryDirectory() as tmp:
+            p=Path(tmp)/'profile.log'
+            p.write_text('FI_DISABLED_CONTROL_PASS\n'+SCHEMA_MARKER+'\n'+
+                         'FI_PROFILE_EVENT,PRODUCE,DAT_0010,1342,1339\n'+
+                         'FI_PROFILE_EVENT,CONSUME,DAT_0010,1343,1340\n'+
+                         'FI_PROFILE_EVENT,FC_VALID,DAT_0010,1343,1340\n'+
+                         'FI_PROFILE_PASS: baseline completed, no fault injected\n')
+            old=dict(next(t for t in load_plan(REPO/'fi/config/pilot400_targets.csv',
+                        REPO/'fi/config/fi_targets_candidates_v2.csv')
+                        if t['target_id']=='DAT_0010'))
+            old['offset_b']='1341'  # explicitly test original invalid B time
+            self.assertEqual(validate_handoff(p,old),3)
+            p.write_text(p.read_text().replace('FI_PROFILE_PASS:',
+                'FI_PROFILE_EVENT,CONSUME,DAT_0010,1344,1341\nFI_PROFILE_PASS:'))
+            with self.assertRaisesRegex(ValueError,'Unexpected consume'):
+                validate_handoff(p,old)
+
+    def test_new_manifest_tcl_propagates_bit1(self):
+        from refreeze_pilot400_dat0010 import proposed_rows
+        old=load_plan(REPO/'fi/config/pilot400_targets.csv',
+                      REPO/'fi/config/fi_targets_candidates_v2.csv')
+        target=next(p for p in old if p['target_id']=='DAT_0010')
+        rows=(expected_rows(old) if target['bit_index_b']=='1'
+              else proposed_rows(REPO)[1])
+        with tempfile.TemporaryDirectory() as tmp:
+            tcl=make_tcl(Path(tmp)/'Simulation.xpr',rows[381],
+                         Path(tmp)/'probe.done','sim_1',
+                         REPO/'fi/pilot400/samples/IMG0000')
+            self.assertIn('FI_BIT=1',tcl)
+            self.assertIn('FI_OFFSET=1340',tcl)
+            self.assertIn('SCENARIO_ID=FI_P400_0382',tcl)
+
+class DirectControl10BackendTests(unittest.TestCase):
+    """Static/dry-run checks, not Windows Vivado/XSim execution."""
+
+    def test_prepare_generates_scripts_once_without_reset(self):
+        from pilot400_direct_xsim import prepare_tcl
+        txt=prepare_tcl(Path('/temp/Simulation.xpr'),'sim_1')
+        self.assertIn('launch_simulation -scripts_only -absolute_path -noclean_dir',txt)
+        self.assertIn('CONTROL10_SCRIPT_GENERATION_PASS',txt)
+        self.assertIn('set_property top tb_cnn_mnist_fi_pilot400',txt)
+        self.assertNotIn('reset_simulation',txt)
+        self.assertNotIn('run all',txt)
+
+    def test_direct_run_quotes_entire_plusarg_tokens(self):
+        from pilot400_direct_xsim import make_cmd_run
+        row=dict(scenario_id='FI_P400_0001',target_id='CTL_0001',
+                 sample_id='IMG0000',bit_index='2',injection_offset='125')
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            txt=make_cmd_run(root/'xsim',root/'vivado',row,root/'samples',
+                             root/'test.tcl',root/'run.log',root/'console.log')
+        self.assertIn('-testplusarg "PILOT_PROFILE_ONLY=1"',txt)
+        self.assertIn('-testplusarg "FI_OFFSET=125"',txt)
+        self.assertIn('-testplusarg "SCENARIO_ID=FI_P400_0001"',txt)
+        self.assertIn('-testplusarg "INPUT_FILE=',txt)
+        self.assertIn('set "RC=%ERRORLEVEL%"',txt)
+        self.assertIn('exit /b %RC%',txt)
+        self.assertNotIn('settings64.bat',txt)
+        self.assertNotIn('reset_simulation',txt)
+
+    def test_stage_batch_uses_explicit_windows_environment(self):
+        from pilot400_direct_xsim import make_cmd_stage
+        txt=make_cmd_stage(Path('/sim'),Path('/vivado'),'compile',Path('/tmp/console.log'))
+        self.assertIn('set "XILINX_VIVADO=',txt)
+        self.assertIn('set "PATH=%XILINX_VIVADO%/bin;%PATH%"',txt)
+        self.assertIn('call "compile.bat"',txt)
+        self.assertIn('exit /b %RC%',txt)
+
+    def test_cmd_special_chars_are_rejected(self):
+        from pilot400_direct_xsim import batch_safe
+        for arg in ('C:/evil%PATH%', 'x&whoami', 'x!TEMP!', 'x"y', 'x^y'):
+            with self.assertRaises(ValueError):batch_safe(arg)
+        self.assertEqual(batch_safe('D:\\foo\\bar'), 'D:/foo/bar')
+
+    def test_prj_matches_actual_repo_rtl_and_tb(self):
+        from pilot400_direct_xsim import project_source_hashes
+        with tempfile.TemporaryDirectory() as d:
+            root=Path(d);rtl=root/'rtl';rtl.mkdir()
+            sim=root/'Simulation';sim.mkdir()
+            tb=root/'fi/tb';tb.mkdir(parents=True)
+            tb_file=tb/'tb_cnn_mnist_fi_pilot400.v'
+            tb_file.write_text('module test; endmodule\n')
+            copies=[]
+            for i in range(21):
+                filename='source_%02d.v'%i
+                original=rtl/filename
+                original.write_text('module x%02d; endmodule\n'%i)
+                copy=sim/filename
+                copy.write_bytes(original.read_bytes())
+                copies.append(copy)
+            prj=root/'xsim_vlog.prj'
+            prj.write_text('\n'.join('verilog xil_defaultlib "'+str(p)+'"' for p in [*copies,tb_file]))
+            hashes,count=project_source_hashes(prj,root)
+            self.assertEqual(count,21)
+            self.assertEqual(len(hashes),22)
+            copies[3].write_text('module changed; endmodule\n')
+            with self.assertRaisesRegex(ValueError,'differs from current repo RTL'):
+                project_source_hashes(prj,root)
+
+    @staticmethod
+    def make_vivado_authority_fixture(folder):
+        """A real-looking .prj with 24 Vivado RTL files, TB, and glbl."""
+        from pilot400_common import sha256
+        root=Path(folder)
+        repo=root/'repo';(repo/'rtl').mkdir(parents=True)
+        tb=(repo/'fi/tb/tb_cnn_mnist_fi_pilot400.v')
+        tb.parent.mkdir(parents=True)
+        tb.write_text('module tb_cnn_mnist_fi_pilot400; endmodule\n')
+        project_dir=root/'Vivado';project_dir.mkdir()
+        project=project_dir/'Simulation.xpr';project.write_text('project stub\n')
+        vsrc=project_dir/'Simulation.srcs/sources_1/new';vsrc.mkdir(parents=True)
+        required=['cnn_mnist_top.v','top_fsm.v','argmax.v',
+                  'fully_connected.v','feature_mem1.v','feature_mem2.v',
+                  'conv1_layer.v','conv2_layer.v']
+        names=required+[f'rtl_component_{i:02d}.v' for i in range(16)]
+        rtl=[]
+        for name in names:
+            v=vsrc/name;v.write_text(f'// authoritative Vivado {name}\n')
+            (repo/'rtl'/name).write_text(f'// stale Git {name}\n')
+            rtl.append(v)
+        glbl=root/'xsim.dir/glbl.v';glbl.parent.mkdir();glbl.write_text('module glbl; endmodule\n')
+        prj=root/'xsim_vlog.prj'
+        prj.write_text('\n'.join('verilog xil_defaultlib "'+str(v)+'"'
+                                for v in [*rtl,tb,glbl])+'\n')
+        return repo,project,prj,rtl,tb
+
+    def test_opt_in_vivado_authority_accepts_stale_git_and_hashes_actual_hdl(self):
+        from pilot400_direct_xsim import project_source_hashes
+        from pilot400_common import sha256
+        with tempfile.TemporaryDirectory() as tmp:
+            repo,project,prj,rtl,tb=self.make_vivado_authority_fixture(tmp)
+            with self.assertRaisesRegex(ValueError,'differs from current repo RTL'):
+                project_source_hashes(prj,repo)
+            actual,count=project_source_hashes(prj,repo,'vivado',project)
+            self.assertEqual(count,24)
+            self.assertEqual(len(actual),26)  # 24 RTL + 1 TB + 1 glbl
+            self.assertEqual(actual[str(rtl[0].resolve())],sha256(rtl[0]))
+            self.assertIn(str(tb.resolve()),actual)
+            self.assertIn(str((Path(tmp)/'xsim.dir/glbl.v').resolve()),actual)
+
+    def test_opt_in_vivado_authority_rejects_external_or_missing_critical_rtl(self):
+        from pilot400_direct_xsim import project_source_hashes
+        with tempfile.TemporaryDirectory() as tmp:
+            repo,project,prj,rtl,tb=self.make_vivado_authority_fixture(tmp)
+            external=Path(tmp)/'external.v';external.write_text('// outside source tree\n')
+            original=prj.read_text()
+            prj.write_text(original.replace(str(rtl[0]),str(external)))
+            with self.assertRaisesRegex(ValueError,'outside selected project .srcs'):
+                project_source_hashes(prj,repo,'vivado',project)
+            prj.write_text(original.replace(str(rtl[0])+'"',str(rtl[1])+'"'))
+            with self.assertRaises(ValueError):
+                project_source_hashes(prj,repo,'vivado',project)
+            prj.write_text(original.replace(str(rtl[0])+'"',str(rtl[0])+'"'))
+            rtl[0].unlink()
+            with self.assertRaisesRegex(ValueError,'missing HDL source'):
+                project_source_hashes(prj,repo,'vivado',project)
+
+    def test_opt_in_vivado_authority_requires_exact_fi_testbench_and_project(self):
+        from pilot400_direct_xsim import project_source_hashes
+        with tempfile.TemporaryDirectory() as tmp:
+            repo,project,prj,rtl,tb=self.make_vivado_authority_fixture(tmp)
+            with self.assertRaisesRegex(ValueError,'existing --project'):
+                project_source_hashes(prj,repo,'vivado',None)
+            other=Path(tmp)/'different_tb.v';other.write_text('// changed TB\n')
+            prj.write_text(prj.read_text().replace(str(tb),str(other)))
+            with self.assertRaisesRegex(ValueError,'outside selected project .srcs'):
+                project_source_hashes(prj,repo,'vivado',project)
+            prj.write_text(prj.read_text().replace(str(other),str(tb)))
+            tb.write_text('// modified TB\n')
+            # Same TB file is authoritative in repo and in the .prj: no mismatch.
+            hashes,count=project_source_hashes(prj,repo,'vivado',project)
+            self.assertEqual(count,24)
+
+    def test_vivado_authority_rejects_duplicate_RTL_name_and_tamper(self):
+        from pilot400_direct_xsim import project_source_hashes
+        with tempfile.TemporaryDirectory() as tmp:
+            repo,project,prj,rtl,tb=self.make_vivado_authority_fixture(tmp)
+            duplicate=(project.parent/'Simulation.srcs/sources_2/new'/rtl[0].name)
+            duplicate.parent.mkdir(parents=True)
+            duplicate.write_text('// copy under same basename\n')
+            prj.write_text(prj.read_text()+f'verilog xil_defaultlib "{duplicate}"\n')
+            with self.assertRaisesRegex(ValueError,'Duplicate Vivado RTL basename'):
+                project_source_hashes(prj,repo,'vivado',project)
+
+    def test_cli_disallows_vivado_authority_without_direct_backend(self):
+        from run_pilot400_control10 import main
+        from unittest.mock import patch
+        with patch('sys.argv',['run_pilot400_control10.py',
+                               '--project','fake.xpr','--rtl-source','vivado']):
+            with self.assertRaises(SystemExit) as context:
+                main()
+            self.assertEqual(context.exception.code,2)
+
+    def test_xelab_incremental_relink_with_updated_snapshot_is_accepted(self):
+        from pilot400_direct_xsim import (classify_elaboration, snapshot_signature,
+                                          ELAB_RELINK_MARKER)
+        with tempfile.TemporaryDirectory() as tmp:
+            snapshot = Path(tmp)/'xsim.dir'/'tb_cnn_mnist_fi_pilot400_behav'
+            snapshot.mkdir(parents=True)
+            kernel = snapshot/'xsimk.dll'
+            kernel.write_bytes(b'previous kernel')
+            before = snapshot_signature(snapshot)
+            kernel.write_bytes(b'relinked kernel with new content')
+            text = ('Running: C:/Vivado/xelab.exe --incr ...\n'
+                    'Starting static elaboration\n'
+                    'Completed static elaboration\n'
+                    + ELAB_RELINK_MARKER + '\n')
+            self.assertEqual(classify_elaboration(text, snapshot, before),
+                             'INCREMENTAL_RELINK')
+
+    def test_xelab_full_build_and_relink_are_distinguished(self):
+        from pilot400_direct_xsim import (classify_elaboration, snapshot_signature,
+                                          ELAB_BUILT_MARKER, ELAB_RELINK_MARKER)
+        with tempfile.TemporaryDirectory() as tmp:
+            snap = Path(tmp)/'snapshot'; snap.mkdir()
+            kernel = snap/'xsimk.dll';kernel.write_bytes(b'old')
+            before = snapshot_signature(snap)
+            kernel.write_bytes(b'new kernel')
+            prefix = ('Running: C:/Vivado/xelab.exe\nStarting static elaboration\n'
+                      'Completed static elaboration\n')
+            self.assertEqual(classify_elaboration(prefix+ELAB_BUILT_MARKER,snap,before),
+                             'FULL_BUILD')
+            with self.assertRaisesRegex(ValueError,'not refreshed'):
+                classify_elaboration(prefix+ELAB_RELINK_MARKER,snap,snapshot_signature(snap))
+            with self.assertRaisesRegex(ValueError,'neither'):
+                classify_elaboration(prefix+'unrecognized build output',snap,before)
+            with self.assertRaisesRegex(ValueError,'error/fatal'):
+                classify_elaboration(prefix+ELAB_RELINK_MARKER+'\nERROR: linker failed',snap,before)
+            with self.assertRaisesRegex(ValueError,'completed'):
+                classify_elaboration(ELAB_RELINK_MARKER,snap,before)
+
+    def test_error_cannot_be_labeled_control_pass(self):
+        from run_pilot400_control10 import check_control_log
+        from profile_pilot400 import SCHEMA_MARKER
+        with tempfile.TemporaryDirectory() as d:
+            p=Path(d)/'test.log'
+            clean=('FI_DISABLED_CONTROL_PASS latency=1342 pool1=676 '
+                   'pool2=200 logits=10 prediction=0\n'+SCHEMA_MARKER+'\n'
+                   'FI_PROFILE_PASS: baseline completed, no fault injected\n')
+            p.write_text(clean)
+            check_control_log(p,'IMG0000',0)
+            p.write_text(clean+'ERROR: injected tool failure\n')
+            with self.assertRaisesRegex(ValueError,'error/fatal'):
+                check_control_log(p,'IMG0000',0)
+            p.write_text(clean+'FI_APPLIED scenario=UNEXPECTED\n')
+            with self.assertRaisesRegex(ValueError,'fault injected'):
+                check_control_log(p,'IMG0000',0)
 
 if __name__=='__main__':unittest.main(verbosity=2)
