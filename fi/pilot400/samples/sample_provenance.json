@@ -1,0 +1,85 @@
+{
+  "transform": "torchvision ToTensor; Normalize(mean=0.1307,std=0.3081); existing Q4.4 quantize_q44",
+  "weights_directory": "D:\\Share_Data_ubuntu_window\\Github\\cnn-mnist-q44-rtl\\data",
+  "weight_hashes": {
+    "conv1_weight.hex": "7835471d7740fd8b955428de7e99feae9791c500d6e9743d22218545c2962113",
+    "conv1_bias.hex": "1b35f7313b3cdba3f84e5a17fa5e510fc6745d8520c44194ac3c7837449d0767",
+    "conv2_weight.hex": "87a98a03e5da3398b635c9c88529d26ec873e02eee962da998b3feb8f2a5ad37",
+    "conv2_bias.hex": "154f663b1d180cc783a1e67a35df55806e3013c99c2509a024215f6ee34531ba",
+    "fc_weight.hex": "81b495f4b0be1d401137b41cf7d7684c75bd8f01f4c036b52d12f4d0abfc108e",
+    "fc_bias.hex": "4e2f57fdc50efbd9279afd8032908634505affcad0a368d6a766b35bccba3b23"
+  },
+  "dataset": "torchvision.datasets.MNIST test split",
+  "samples": [
+    {
+      "sample_id": "IMG0000",
+      "mnist_test_index": 3,
+      "mnist_label": 0,
+      "golden_prediction": 0,
+      "input_sha256": "aeb54e81e883d869fdbe807e0003e21b2f95aa6225b6eabbda61f8fe070ee3ea"
+    },
+    {
+      "sample_id": "IMG0001",
+      "mnist_test_index": 0,
+      "mnist_label": 7,
+      "golden_prediction": 7,
+      "input_sha256": "30753c5d4df6f2a7f05bb6e9da7ff4dfea73840e3d61746a6fab3bf0a16757b5"
+    },
+    {
+      "sample_id": "IMG0002",
+      "mnist_test_index": 1,
+      "mnist_label": 2,
+      "golden_prediction": 2,
+      "input_sha256": "0776dc3204d324394ee05c21e6065da22c36aef4d7abb215c447208d9937c3d3"
+    },
+    {
+      "sample_id": "IMG0003",
+      "mnist_test_index": 2,
+      "mnist_label": 1,
+      "golden_prediction": 1,
+      "input_sha256": "8c09d897488dfc46b44debccd0f473cd48d584b12e663b8e85aaa7770b2dc2d8"
+    },
+    {
+      "sample_id": "IMG0004",
+      "mnist_test_index": 4,
+      "mnist_label": 4,
+      "golden_prediction": 4,
+      "input_sha256": "bbcf4dca2706d743f9a64f12c0646690b444681e3cacf8fec11d7619c8e4af0b"
+    },
+    {
+      "sample_id": "IMG0005",
+      "mnist_test_index": 5,
+      "mnist_label": 1,
+      "golden_prediction": 1,
+      "input_sha256": "4dfda4699edb935db3a438b2fe5dcf5b73446d9cd915e79c00cce6fcb9eecd0e"
+    },
+    {
+      "sample_id": "IMG0006",
+      "mnist_test_index": 6,
+      "mnist_label": 4,
+      "golden_prediction": 4,
+      "input_sha256": "ff1e53b0cc2f2d71dfdfc83743fc997f5b8f84f8024c3ba545c6d7be7ad15acb"
+    },
+    {
+      "sample_id": "IMG0007",
+      "mnist_test_index": 7,
+      "mnist_label": 9,
+      "golden_prediction": 9,
+      "input_sha256": "5a0675528b08059e80877cbc365645fa86843f36f12db1bb04acab1a1879c781"
+    },
+    {
+      "sample_id": "IMG0008",
+      "mnist_test_index": 8,
+      "mnist_label": 5,
+      "golden_prediction": 5,
+      "input_sha256": "6063d011252b5f8dcbeeaac37cc3125d05497ed571b4bac241edec9d108903d4"
+    },
+    {
+      "sample_id": "IMG0009",
+      "mnist_test_index": 9,
+      "mnist_label": 9,
+      "golden_prediction": 9,
+      "input_sha256": "1331ec62c7f5da6b070de58509cc6264ab88d4950a814cbb4fdc2c47f4d5d06f"
+    }
+  ]
+}
