@@ -15,6 +15,9 @@ CLASSES = ('CTL', 'BUF', 'MEM', 'DAT')
 SAMPLES = tuple((f'IMG{i:04d}', n) for i, n in enumerate((3, 0, 1, 2, 4, 5, 6, 7, 8, 9)))
 FIELDS = ('scenario_id', 'sample_id', 'target_id', 'target_class', 'bit_index', 'injection_offset')
 PLAN_FIELDS = ('target_id', 'target_class', 'bit_index', 'offset_a', 'offset_b', 'evidence_status', 'selection_rationale')
+# Optional extended source-plan field. The six-column XSim scenario interface
+# remains unchanged: each row always describes exactly ONE bit and ONE cycle.
+PLAN_OPTIONAL_FIELDS = ('bit_index_b',)
 ASSET_SIZES = {'input.hex': (784, 2), 'golden_pool1.hex': (676, 2),
                'golden_pool2.hex': (200, 2), 'golden.hex': (10, 8),
                'prediction.hex': (1, 2)}
@@ -52,6 +55,11 @@ def sha256(path: Path) -> str:
 
 def load_plan(plan_path: Path, catalog_path: Path) -> list[dict[str, str]]:
     plans = read_csv(plan_path, PLAN_FIELDS)
+    # Explicitly reject unknown source-plan fields while retaining the older
+    # seven-column plan so users can validate BEFORE a versioned refreeze.
+    if plans and (set(plans[0]) - set(PLAN_FIELDS) - set(PLAN_OPTIONAL_FIELDS)):
+        raise ValueError('Unknown Pilot400 source-plan column')
+    has_bit_b = 'bit_index_b' in plans[0] if plans else False
     catalog = {r['target_id']: r for r in read_csv(catalog_path, ('target_id','class','width','bit_min','bit_max'))}
     if len(plans) != 20 or len(set(r['target_id'] for r in plans)) != 20:
         raise ValueError('Pilot400 must have exactly 20 different targets')
@@ -63,10 +71,19 @@ def load_plan(plan_path: Path, catalog_path: Path) -> list[dict[str, str]]:
         if t is None or t['class'] != p['target_class']:
             raise ValueError(f'Unknown/class-mismatched catalog target {p["target_id"]}')
         bit, a, b = (int(p[k]) for k in ('bit_index','offset_a','offset_b'))
-        if not (0 <= int(t['bit_min']) <= bit <= int(t['bit_max']) < int(t['width'])):
+        # For legacy plans the second configuration uses the same bit.
+        # Extended plans set bit_index_b explicitly for every target.
+        bit_b = int(p['bit_index_b']) if has_bit_b else bit
+        p['bit_index_b'] = str(bit_b)
+        minbit, maxbit, width = (int(t[k]) for k in ('bit_min','bit_max','width'))
+        if not (0 <= minbit <= bit <= maxbit < width and minbit <= bit_b <= maxbit):
             raise ValueError(f'Bit outside catalog bounds: {p["target_id"]}')
-        if not (3 <= a < 3000 and 3 <= b < 3000 and a != b):
-            raise ValueError(f'Invalid or duplicate offsets: {p["target_id"]}')
+        if not (3 <= a < 3000 and 3 <= b < 3000):
+            raise ValueError(f'Invalid injection offsets: {p["target_id"]}')
+        if a == b and not (p['target_id'] == 'DAT_0010' and bit != bit_b):
+            raise ValueError(f'Duplicate bit/time tuple or unapproved equal-offset target: {p["target_id"]}')
+        if a != b and bit_b != bit:
+            raise ValueError(f'Bit variation outside approved DAT_0010 equal-offset policy: {p["target_id"]}')
         if not re.fullmatch(r'[A-Z]{3}_[0-9]{4}', p['target_id']):
             raise ValueError(f'Unsafe target ID: {p["target_id"]}')
     return sorted(plans, key=lambda r: (CLASSES.index(r['target_class']), r['target_id']))
@@ -76,13 +93,14 @@ def expected_rows(plans: list[dict[str, str]]) -> list[dict[str, str]]:
     records = []
     for p in plans:
         for sample_id, _ in SAMPLES:
-            for offset_field in ('offset_a', 'offset_b'):
+            for offset_field, bit_field in (('offset_a', 'bit_index'),
+                                            ('offset_b', 'bit_index_b')):
                 records.append({
                     'scenario_id': f'FI_P400_{len(records)+1:04d}',
                     'sample_id': sample_id,
                     'target_id': p['target_id'],
                     'target_class': p['target_class'],
-                    'bit_index': p['bit_index'],
+                    'bit_index': p[bit_field],
                     'injection_offset': p[offset_field],
                 })
     if len(records) != 400 or len(set(tuple(r[k] for k in FIELDS[1:]) for r in records)) != 400:
