@@ -48,7 +48,7 @@ def main():
         else:
             write_csv(out, FIELDS, rows)
     by_class = {cls: sum(r['target_class']==cls for r in rows) for cls in ('CTL','BUF','MEM','DAT')}
-    print('PILOT400_MANIFEST_PASS: 400 unique scenarios, 20 targets, 10 samples, 2 offsets; per-class=',by_class)
+    print('PILOT400_MANIFEST_PASS: 400 unique scenarios, 20 targets, 10 samples, 2 bit/time configurations; per-class=',by_class)
     print('  400 plan rows are NOT 400 XSim PASS executions.')
     for sid,idx in SAMPLES:
         print(f'  {sid}: MNIST test-set index {idx}')
