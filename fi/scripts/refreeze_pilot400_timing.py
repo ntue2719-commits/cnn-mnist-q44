@@ -88,7 +88,8 @@ def read_plan(path: Path) -> tuple[list[dict[str, str]], list[str]]:
     with path.open('r', encoding='utf-8-sig', newline='') as file:
         reader = csv.DictReader(file)
         columns = reader.fieldnames
-        if columns is None or tuple(columns) != FIELDS:
+        if columns is None or (tuple(columns) != FIELDS and
+                tuple(columns) != FIELDS[:3] + ('bit_index_b',) + FIELDS[3:]):
             raise ValueError(f'Unexpected pilot400_targets.csv columns: {columns}')
         rows = list(reader)
     if len(rows) != 20 or len({r['target_id'] for r in rows}) != 20:
