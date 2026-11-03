@@ -11,9 +11,10 @@ sys.path.insert(0,str(Path(__file__).resolve().parent))
 from pilot400_common import (FIELDS,load_plan,expected_rows,verify_manifest,
                              validate_assets,write_csv,read_csv)
 from preflight_pilot400 import preflight
-from run_pilot400 import make_tcl
+from run_pilot400 import make_tcl, validate_full_timing_gate
 from analyze_pilot400 import interpret,run_analysis
-from profile_pilot400 import assess
+from profile_pilot400 import assess, parse_log, timing_gate_pass, SCHEMA_MARKER
+from run_pilot400_control10 import check_control_log, validate_control10_gate
 
 REPO=Path(__file__).resolve().parents[2]
 
@@ -137,6 +138,17 @@ class Pilot400Tests(unittest.TestCase):
         output=assess(plan,invalid)
         self.assertEqual(output[0]['status_a'],'FAIL_MEM_LIFETIME')
 
+    def test_dat0010_argmax_consumer_is_checked_pre_nba(self):
+        # Static regression only. The targeted XSim replay is required for
+        # runtime verification of the simulator's deposit/edge ordering.
+        tb=(REPO/'fi/tb/tb_cnn_mnist_fi_pilot400.v').read_text()
+        self.assertIn('argmax_input_pre_valid = i_rst_n && monitor_enable &&',tb)
+        self.assertIn('dut.u_argmax.i_valid;',tb)
+        self.assertIn('argmax_input_pre_logits = dut.u_argmax.i_logits;',tb)
+        self.assertIn('if (argmax_input_pre_valid) begin',tb)
+        self.assertIn('FI_DAT_ARGMAX_CONSUME',tb)
+        self.assertIn('logits_bad_seen[j]',tb)
+
     def test_pilot_tb_preserves_static_timeline_checks(self):
         tb=(REPO/'fi/tb/tb_cnn_mnist_fi_pilot400.v').read_text()
         self.assertIn('module tb_cnn_mnist_fi_pilot400;',tb)
@@ -146,5 +158,180 @@ class Pilot400Tests(unittest.TestCase):
         self.assertIn('PILOT_PROFILE_ONLY',tb)
         self.assertIn('timeline_check();',tb)
         self.assertIn('FI_DISABLED_CONTROL_PASS',tb)
+
+
+
+class ProfileV2Tests(unittest.TestCase):
+    """Synthetic UNIT tests: none of these constitutes Vivado/XSim evidence."""
+    @classmethod
+    def setUpClass(cls):
+        cls.plans=load_plan(REPO/'fi/config/pilot400_targets.csv',
+                            REPO/'fi/config/fi_targets_candidates_v2.csv')
+
+    @classmethod
+    def target(cls, name):
+        return [p for p in cls.plans if p['target_id']==name]
+
+    @staticmethod
+    def ev(kind, target, offset, start=3):
+        return (kind,target,offset+start,offset)
+
+    def test_ctl_both_active_edges(self):
+        events=[self.ev('ACTIVE','CTL_0001',125),
+                self.ev('ACTIVE','CTL_0001',150)]
+        rows=assess(self.target('CTL_0001'),events)
+        self.assertEqual(rows[0]['status_a'],'CTL_ACTIVE_AT_EDGE')
+        self.assertEqual(rows[0]['status_b'],'CTL_ACTIVE_AT_EDGE')
+        self.assertTrue(timing_gate_pass(rows))
+
+    def test_ctl_missing_one_active_edge_must_fail(self):
+        r=assess(self.target('CTL_0012'),[self.ev('ACTIVE','CTL_0012',850)])[0]
+        self.assertEqual(r['status_a'],'CTL_ACTIVE_AT_EDGE')
+        self.assertEqual(r['status_b'],'FAIL_CTL_INACTIVE')
+        self.assertFalse(timing_gate_pass([r]))
+        self.assertEqual(assess(self.target('CTL_0012'),[])[0]['status_a'],'NOT_PROFILED')
+
+    def test_dat_producer_before_exact_consumer_edge(self):
+        # DAT_0010: FC registers logits at offset1339; ArgMax consumes at
+        # offset1340. The second configured offset1341 is NOT a handoff.
+        events=[self.ev('PRODUCE','DAT_0010',1339),
+                self.ev('CONSUME','DAT_0010',1340),
+                self.ev('FC_VALID','DAT_0010',1340)]
+        r=assess(self.target('DAT_0010'),events)[0]
+        self.assertEqual(r['status_a'],'DAT_HANDOFF_AT_EDGE')
+        self.assertEqual(r['status_b'],'FAIL_DAT_HANDOFF')
+        self.assertFalse(timing_gate_pass([r]))
+
+    def test_dat_producer_not_on_consumer_edge(self):
+        events=[self.ev('PRODUCE','DAT_0004',1200),
+                self.ev('CONSUME','DAT_0004',1220)]
+        r=assess(self.target('DAT_0004'),events)[0]
+        self.assertEqual(r['status_b'],'DAT_HANDOFF_AT_EDGE')
+        self.assertEqual(r['status_a'],'FAIL_DAT_HANDOFF')
+        self.assertEqual(assess(self.target('DAT_0004'),[])[0]['status_b'],'NOT_PROFILED')
+
+    def test_dat_production_only_or_consume_only_not_enough(self):
+        for kind in ('PRODUCE','CONSUME'):
+            r=assess(self.target('DAT_0010'),[self.ev(kind,'DAT_0010',1340)])[0]
+            self.assertNotEqual(r['status_a'],'DAT_HANDOFF_AT_EDGE')
+
+    def test_mem2_requires_downstream_consumer_after_read(self):
+        events=[self.ev('WRITE','MEM_0004',1288),
+                self.ev('READ','MEM_0004',1314),
+                self.ev('CONSUME','MEM_0004',1315)]
+        r=assess(self.target('MEM_0004'),events)[0]
+        self.assertEqual(r['status_a'],'WRITE_READ_CONSUME_WINDOW')
+        self.assertEqual(r['status_b'],'WRITE_READ_CONSUME_WINDOW')
+        r=assess(self.target('MEM_0004'),events[:2])[0]
+        self.assertEqual(r['status_a'],'WRITE_LT_INJECT_LT_READ')
+        self.assertFalse(timing_gate_pass([r]))
+
+    def test_mem2_overwritten_before_consumer_not_eligible(self):
+        events=[self.ev('WRITE','MEM_0004',1288),
+                self.ev('WRITE','MEM_0004',1300),
+                self.ev('READ','MEM_0004',1314),
+                self.ev('CONSUME','MEM_0004',1315)]
+        # Both configured offsets 1292 and1295 are before overwrite at1300.
+        r=assess(self.target('MEM_0004'),events)[0]
+        self.assertEqual(r['status_a'],'WRITE_LT_INJECT_LT_READ')
+        self.assertFalse(timing_gate_pass([r]))
+
+    def test_buf_line_buffer_read_before_same_edge_overwrite(self):
+        events=[self.ev('WRITE','BUF_0017',30),
+                self.ev('WRITE','BUF_0017',58),
+                self.ev('CONSUME','BUF_0017',58)]
+        r=assess(self.target('BUF_0017'),events)[0]
+        self.assertEqual(r['status_a'],'BUF_WRITE_CONSUME_WINDOW')
+        self.assertEqual(r['status_b'],'BUF_WRITE_CONSUME_WINDOW')
+
+    def test_buf_reorder_and_conv2_consumers(self):
+        for target,w,c in [('BUF_0007',790,877),('BUF_0031',1048,1255)]:
+            r=assess(self.target(target),[self.ev('WRITE',target,w),
+                                          self.ev('CONSUME',target,c)])[0]
+            self.assertEqual(r['status_a'],'BUF_WRITE_CONSUME_WINDOW')
+            self.assertEqual(r['status_b'],'BUF_WRITE_CONSUME_WINDOW')
+            self.assertTrue(timing_gate_pass([r]))
+
+    def test_buf_intervening_write_blocks_consume(self):
+        events=[self.ev('WRITE','BUF_0007',790),
+                self.ev('WRITE','BUF_0007',820),
+                self.ev('CONSUME','BUF_0007',877)]
+        r=assess(self.target('BUF_0007'),events)[0]
+        self.assertEqual(r['status_a'],'AFTER_OBSERVED_WRITE')
+        self.assertFalse(timing_gate_pass([r]))
+
+    @staticmethod
+    def log_with(*events, schema=True):
+        lines=['FI_DISABLED_CONTROL_PASS latency=1342']
+        if schema:lines.append(SCHEMA_MARKER)
+        lines.extend(events)
+        lines.append('FI_PROFILE_PASS: baseline completed, no fault injected')
+        return '\n'.join(lines)+'\n'
+
+    def test_profile_parser_real_schema_checks(self):
+        with tempfile.TemporaryDirectory() as folder:
+            f=Path(folder)/'sample.log'
+            event='FI_PROFILE_EVENT,ACTIVE,CTL_0001,128,125'
+            f.write_text(self.log_with(event))
+            self.assertEqual(len(parse_log(f)),1)
+            f.write_text(self.log_with(event,event))
+            with self.assertRaisesRegex(ValueError,'Duplicate'):parse_log(f)
+            f.write_text(self.log_with(event,schema=False))
+            with self.assertRaisesRegex(ValueError,'legacy'):parse_log(f)
+            self.assertEqual(len(parse_log(f,allow_legacy=True)),1)
+
+    def test_profile_parser_rejects_bad_event_class_and_cycles(self):
+        with tempfile.TemporaryDirectory() as folder:
+            f=Path(folder)/'sample.log'
+            f.write_text(self.log_with('FI_PROFILE_EVENT,PRODUCE,CTL_0001,128,125'))
+            with self.assertRaises(ValueError):parse_log(f)
+            f.write_text(self.log_with('FI_PROFILE_EVENT,ACTIVE,CTL_0001,128,125',
+                                       'FI_PROFILE_EVENT,ACTIVE,CTL_0001,129,125'))
+            with self.assertRaisesRegex(ValueError,'origin'):parse_log(f)
+            f.write_text(self.log_with('FI_PROFILE_EVENT,ACTIVE,CTL_0001,128,bad'))
+            with self.assertRaisesRegex(ValueError,'Malformed'):parse_log(f)
+            f.write_text(self.log_with('FI_PROFILE_EVENT,ACTIVE,CTL_0001,128,125')+
+                         'FI_APPLIED scenario=test')
+            with self.assertRaisesRegex(ValueError,'fault injection'):parse_log(f)
+
+    def test_control10_requires_exact_golden_and_no_fault(self):
+        with tempfile.TemporaryDirectory() as folder:
+            log=Path(folder)/'IMG0001.log'
+            good=('FI_DISABLED_CONTROL_PASS latency=1342 pool1=676 pool2=200 '
+                  'logits=10 prediction=7\n'+SCHEMA_MARKER+'\n'
+                  'FI_PROFILE_PASS: baseline completed, no fault injected\n')
+            log.write_text(good)
+            check_control_log(log,'IMG0001',7)
+            with self.assertRaises(ValueError):check_control_log(log,'IMG0001',0)
+            log.write_text(good+'FI_APPLIED scenario=unexpected\n')
+            with self.assertRaises(ValueError):check_control_log(log,'IMG0001',7)
+
+    def test_control10_missing_manifest_fails_closed(self):
+        with tempfile.TemporaryDirectory() as folder:
+            with self.assertRaisesRegex(ValueError,'requires independent control10'):
+                validate_control10_gate(REPO,Path(folder)/'missing.json',Path(folder))
+
+    def test_full_runner_refuses_missing_v2_provenance(self):
+        with tempfile.TemporaryDirectory() as folder:
+            with self.assertRaisesRegex(ValueError,'schema-V2'):
+                validate_full_timing_gate(REPO,Path(folder)/'missing_audit.csv',
+                                          {r['target_id']:r for r in self.plans})
+
+    def test_installer_rejects_wrong_sim1_tb_path(self):
+        src=(REPO/'fi/scripts/install_pilot400_tb.py').read_text()
+        self.assertIn('Stale Pilot400 TB in sim_1',src)
+        self.assertIn('Multiple Pilot400 TB copies in sim_1',src)
+        self.assertIn('add_files -fileset sim_1 -norecurse $src',src)
+
+    def test_tb_has_profilev2_pre_nba_handoff_qualifiers(self):
+        tb=(REPO/'fi/tb/tb_cnn_mnist_fi_pilot400.v').read_text()
+        for token in ('FI_PROFILE_SCHEMA_V2:', 'FI_PROFILE_EVENT,ACTIVE,CTL_0001',
+                      'FI_PROFILE_EVENT,ACTIVE,CTL_0028',
+                      'FI_PROFILE_EVENT,PRODUCE,DAT_0010',
+                      'FI_PROFILE_EVENT,CONSUME,DAT_0010',
+                      'dut.u_argmax.i_valid', 'dut.u_conv2_layer.u_conv2_calc.i_valid',
+                      'FI_PROFILE_EVENT,CONSUME,BUF_0007',
+                      'FI_PROFILE_EVENT,CONSUME,MEM_0005'):
+            self.assertIn(token,tb)
 
 if __name__=='__main__':unittest.main(verbosity=2)

@@ -113,6 +113,58 @@ def run_one(vivado:str, project:Path, tcl:Path, done:Path, log:Path,
     parse_one(log)
 
 
+def validate_full_timing_gate(repo:Path, audit:Path, planned_targets:dict) -> None:
+    """Fail closed on missing/legacy/partial eligibility, even if candidate bypass requested.
+
+    Re-derive the audit from its authentic schema-V2 raw profile log, and bind
+    it cryptographically to the current TB, target config and 400-row manifest.
+    """
+    from profile_pilot400 import (parse_log, assess, timing_gate_pass, COLUMNS)
+    from pilot400_common import read_csv
+    audit=audit.resolve()
+    provenance=audit.parent/'timing_profile_provenance.json'
+    if not audit.is_file() or not provenance.is_file():
+        raise ValueError('Full400 requires NEW schema-V2 timing audit and provenance; '+
+                         'run profile_pilot400.py --execute with an unused --out-dir')
+    info=json.loads(provenance.read_text(encoding='utf-8'))
+    if info.get('schema')!='PILOT400_PROFILE_V2' or info.get('sample_id')!='IMG0000':
+        raise ValueError('Full400 timing profile schema/sample is not verified')
+    required={
+        'pilot400_tb_sha256': repo/'fi/tb/tb_cnn_mnist_fi_pilot400.v',
+        'target_plan_sha256': repo/'fi/config/pilot400_targets.csv',
+        'scenario_manifest_sha256': repo/'fi/scenarios/pilot400.csv',
+        'timing_audit_sha256': audit,
+    }
+    for name,path in required.items():
+        if info.get(name)!=sha256(path):
+            raise ValueError('Full400 timing provenance changed: '+name)
+    raw=Path(info.get('raw_profile_log',''))
+    if not raw.is_file() or sha256(raw)!=info.get('raw_profile_log_sha256'):
+        raise ValueError('Full400 cannot authenticate original fault-free XSim profile log')
+    events=parse_log(raw)
+    if info.get('event_count')!=len(events):
+        raise ValueError('Full400 profile event-count mismatch')
+    plan=load_plan(repo/'fi/config/pilot400_targets.csv',
+                   repo/'fi/config/fi_targets_candidates_v2.csv')
+    if set(planned_targets)!=set(p['target_id'] for p in plan):
+        raise ValueError('Full400 planned target set changed')
+    expected=assess(plan,events)
+    got=read_csv(audit,COLUMNS)
+    if got!=expected:
+        raise ValueError('Full400 timing audit does not match raw XSim profile events')
+    if len(got)!=20 or not timing_gate_pass(expected):
+        problems=[r['target_id']+':'+r['status_a']+'/'+r['status_b']
+                  for r in expected if not all(r[x]=={
+                      'CTL':'CTL_ACTIVE_AT_EDGE',
+                      'DAT':'DAT_HANDOFF_AT_EDGE',
+                      'MEM':'WRITE_READ_CONSUME_WINDOW',
+                      'BUF':'BUF_WRITE_CONSUME_WINDOW'
+                  }[r['class']] for x in ('status_a','status_b'))]
+        raise ValueError('Full400 timing eligibility gate FAIL: '+', '.join(problems))
+    print('PILOT400_FULL_TIMING_GATE_PASS: 20 targets / 40 baseline temporal windows '
+          '(not fault exposure)',flush=True)
+
+
 def digests_for_batch(repo:Path,selected:list[dict[str,str]])->dict:
     dependencies=['fi/config/pilot400_targets.csv','fi/config/fi_targets_candidates_v2.csv',
                   'fi/scenarios/pilot400.csv','fi/tb/tb_cnn_mnist_fi_pilot400.v']
@@ -149,8 +201,9 @@ def main():
     p.add_argument('--timeout-seconds',type=int,default=900)
     p.add_argument('--execute',action='store_true')
     p.add_argument('--p0-weights-dir',type=Path,help='Actual 6 P0 weight/bias HEX files used by ROMs')
-    p.add_argument('--timing-audit',type=Path,default=Path('fi/results/pilot400_profile/timing_window_audit.csv'))
-    p.add_argument('--allow-candidates',action='store_true',help='Accept unverified timing windows as exploration, not evidence')
+    p.add_argument('--timing-audit',type=Path,default=Path('fi/results/pilot400_profile_v2/timing_window_audit.csv'))
+    p.add_argument('--control10-manifest',type=Path,default=Path('fi/results/pilot400_control10_v2/control10_manifest.json'),help='10-sample fault-free XSim control gate for full400')
+    p.add_argument('--allow-candidates',action='store_true',help='For small exploratory batches ONLY; full 400 always enforces strict evidence')
     p.add_argument('--resume',action='store_true',help='Skip existing validated logs only with matching full hash lock')
     args=p.parse_args()
     repo=args.repo.resolve()
@@ -191,17 +244,16 @@ def main():
                 if not actual.is_file() or sha256(actual)!=info['weight_hashes'].get(name):
                     raise ValueError('P0 weights differ from exported golden sample weights: '+name)
             audit=(args.timing_audit if args.timing_audit.is_absolute() else repo/args.timing_audit)
-            if not audit.is_file():
-                raise ValueError('Full400 requires a real fault-free XSim timing profile: '+str(audit))
-            from pilot400_common import read_csv
-            profiles=read_csv(audit,('target_id','offset_a','offset_b','status_a','status_b'))
-            by_id={x['target_id']:x for x in profiles}
-            for target,plan in planned_targets.items():
-                r=by_id.get(target)
-                if r is None or r['offset_a']!=plan['offset_a'] or r['offset_b']!=plan['offset_b']:
-                    raise ValueError('Timing profile is missing/outdated for '+target)
-                if any(x.startswith('FAIL_') for x in (r['status_a'],r['status_b'])):
-                    raise ValueError('Timing profile rejected planned injection window for '+target)
+            validate_full_timing_gate(repo, audit, planned_targets)
+            from run_pilot400_control10 import validate_control10_gate
+            control10=(args.control10_manifest if args.control10_manifest.is_absolute()
+                       else repo/args.control10_manifest)
+            validate_control10_gate(repo, control10, args.p0_weights_dir.resolve())
+            print('PILOT400_CONTROL10_GATE_PASS: all ten current RTL/golden controls matched',flush=True)
+            if questionable:
+                raise ValueError('Full400 refuses CANDIDATE targets, even with --allow-candidates: '+
+                                 ', '.join(questionable)+
+                                 '. Promote source evidence_status only after independent XSim proof.')
         if questionable and not args.allow_candidates:
             raise ValueError('Selected targets have unverified injection windows: '+', '.join(questionable)+
                              '; use --allow-candidates ONLY for exploratory runs')

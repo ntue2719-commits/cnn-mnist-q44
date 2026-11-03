@@ -81,6 +81,7 @@ module tb_cnn_mnist_fi_pilot400;
     integer fi_offset;
     integer fi_bit;
     integer global_cycle;
+    integer pr_mem1_use_index, pr_mem2_use_index, pr_conv2_use_index;
     integer start_cycle;
     integer first_done_cycle;
     integer first_done_pixels;
@@ -107,6 +108,14 @@ module tb_cnn_mnist_fi_pilot400;
     // Extended to 320 bits so ALL catalog widths can be compared bit-exactly.
     reg [319:0] fi_before_word, fi_after_word, fi_xor_mask;
     reg fi_old_bit, fi_new_bit;
+
+    // Preserve the exact FC logits sampled by ArgMax in the PRE-NBA region.
+    // The existing post-NBA fc_valid checker runs at the FC produce edge and
+    // therefore cannot see a deposit made between produce and consume edges.
+    reg argmax_input_pre_valid;
+    reg [319:0] argmax_input_pre_logits;
+    reg [9:0] logits_bad_seen;
+    integer argmax_input_diff;
 
     function [8*32-1:0] outcome_name;
         input integer code;
@@ -141,12 +150,19 @@ module tb_cnn_mnist_fi_pilot400;
             pool1_mismatch=0;
             pool2_mismatch=0;
             logits_mismatch=0;
+            logits_bad_seen=10'd0;
+            argmax_input_pre_valid=0;
+            argmax_input_pre_logits=320'd0;
+            argmax_input_diff=0;
             first_bad_stage="NONE";
             prediction_at_done=-1;
             fi_requested_cycle=-1;
             fi_actual_cycle=-1;
             fi_events=0;
             fi_injection_ok=0;
+            pr_mem1_use_index=0;
+            pr_mem2_use_index=0;
+            pr_conv2_use_index=0;
             outcome=0;
             protocol_ok=0;
             completed=0;
@@ -157,6 +173,13 @@ module tb_cnn_mnist_fi_pilot400;
     // NBAs (#2). This avoids confusing a newly asserted o_valid with a
     // transaction consumed at the same edge.
     always @(posedge i_clk) begin
+        // Snapshot data *before* the sequential ArgMax always block samples
+        // and before FC can deassert o_valid in the NBA region.
+        argmax_input_pre_valid = i_rst_n && monitor_enable &&
+                                 dut.u_argmax.i_valid;
+        if (argmax_input_pre_valid)
+            argmax_input_pre_logits = dut.u_argmax.i_logits;
+
         if (!i_rst_n)
             global_cycle = 0;
         else
@@ -207,12 +230,39 @@ module tb_cnn_mnist_fi_pilot400;
                 for (j=0; j<10; j=j+1) begin
                     checks = checks + 1;
                     if (dut.fc_logits[j*32 +: 32] !== golden_fc[j]) begin
-                        logits_mismatch = logits_mismatch + 1;
-                        if (first_bad_stage == "NONE")
-                            first_bad_stage = "FC";
+                        // A class is counted only once even if it is wrong at
+                        // both FC production and ArgMax consumption.
+                        if (!logits_bad_seen[j]) begin
+                            logits_bad_seen[j] = 1'b1;
+                            logits_mismatch = logits_mismatch + 1;
+                            if (first_bad_stage == "NONE")
+                                first_bad_stage = "FC";
+                        end
                     end
                 end
                 fc_valid_count = fc_valid_count + 1;
+            end
+
+            // Compare the PRE-NBA consumer snapshot, not the post-NBA FC
+            // output. This catches late single-bit upsets in registered
+            // logits between the FC production edge and ArgMax sampling.
+            if (argmax_input_pre_valid) begin
+                argmax_input_diff = 0;
+                for (j=0; j<10; j=j+1) begin
+                    if (argmax_input_pre_logits[j*32 +: 32] !== golden_fc[j]) begin
+                        argmax_input_diff = argmax_input_diff + 1;
+                        if (!logits_bad_seen[j]) begin
+                            logits_bad_seen[j] = 1'b1;
+                            logits_mismatch = logits_mismatch + 1;
+                            if (first_bad_stage == "NONE")
+                                first_bad_stage = "FC";
+                        end
+                    end
+                end
+                if (fault_run && (target_id == "DAT_0010"))
+                    $display("FI_DAT_ARGMAX_CONSUME cycle=%0d logit0=%08h golden0=%08h mismatched_classes=%0d",
+                        global_cycle,argmax_input_pre_logits[31:0],golden_fc[0],
+                        argmax_input_diff);
             end
 
             if (dut.conv1_done) conv1_done_count = conv1_done_count+1;
@@ -992,6 +1042,143 @@ module tb_cnn_mnist_fi_pilot400;
     end
 
     // ========================================================================
+    // PILOT400 PROFILE V2: target-specific RTL state activity and handoff.
+    // Only active during the fault-free control run (+PILOT_PROFILE_ONLY).
+    // All predicates below are sampled PRE-NBA at the consuming clock edge;
+    // global cycle is printed after #2, consistently with the legacy profile.
+    //
+    // ACTIVE: the indicated CTL register is in an operative phase and read
+    //         or advanced at the sampled edge (NOT proof of harmfulness).
+    // PRODUCE: a registered DAT value is written by NBA at this edge.
+    // CONSUME: a downstream block samples the OLD registered DAT value at
+    //          this edge (NOT a value-aware corrupted-data assertion).
+    //
+    // For BUF/MEM, CONSUME records baseline downstream access to the selected
+    // slot. They do not assert that an injected bit reaches the consumer.
+    // ========================================================================
+    reg pr_ctl0001, pr_ctl0012, pr_ctl0019, pr_ctl0026, pr_ctl0028;
+    reg pr_dat0002_prod, pr_dat0002_use;
+    reg pr_dat0004_prod, pr_dat0004_use;
+    reg pr_fc_acc_prod, pr_fc_acc_use;
+    reg pr_dat0010_prod, pr_dat0010_use;
+    reg pr_buf0007_use, pr_buf0017_use;
+    reg pr_mem1_use0, pr_mem1_use84, pr_mem1_use168;
+    reg pr_mem2_use0, pr_mem2_use12, pr_mem2_use24;
+    reg pr_buf0030_use, pr_buf0031_use, pr_buf0032_use;
+
+    always @(posedge i_clk) begin
+        if (i_rst_n && monitor_enable && !fault_run && pilot_profile_only) begin
+            // Verilog state names/widths are taken from the uploaded P0 RTL.
+            pr_ctl0001 = (dut.u_top_fsm.state >= 3'd1) &&
+                         (dut.u_top_fsm.state <= 3'd4);
+            pr_ctl0012 = dut.u_feature_mem1.i_wr_valid &&
+                         !dut.u_feature_mem1.i_start &&
+                         (dut.u_feature_mem1.wr_ptr < 8'd169);
+            pr_ctl0019 = dut.u_fully_connected.r_busy &&
+                         dut.u_fully_connected.i_valid &&
+                         (dut.u_fully_connected.cycle_count <= 5'd24);
+            pr_ctl0026 = dut.u_conv1_layer.u_conv1_buf.i_valid &&
+                         !dut.u_conv1_layer.u_conv1_buf.i_start;
+            pr_ctl0028 = ((dut.u_conv2_layer.u_conv2_buf.state == 2'd1) &&
+                          dut.u_conv2_layer.u_conv2_buf.i_valid) ||
+                         (dut.u_conv2_layer.u_conv2_buf.state == 2'd3);
+
+            pr_dat0002_prod = dut.u_conv1_layer.u_conv1_quant_relu.i_valid;
+            pr_dat0002_use  = dut.u_conv1_layer.u_pool1_buf.i_valid;
+            pr_dat0004_prod = dut.u_conv2_layer.u_conv2_calc.i_valid;
+            pr_dat0004_use  = dut.u_conv2_layer.u_conv2_quant_relu.i_valid;
+            // FC initializes accumulator on i_start and then updates/uses it
+            // on each accepted input word; cycle24 also reads it for logits.
+            pr_fc_acc_prod = (dut.u_fully_connected.i_start &&
+                              !dut.u_fully_connected.r_busy) ||
+                             (dut.u_fully_connected.r_busy &&
+                              dut.u_fully_connected.i_valid);
+            pr_fc_acc_use  = dut.u_fully_connected.r_busy &&
+                             dut.u_fully_connected.i_valid;
+            pr_dat0010_prod = dut.u_fully_connected.r_busy &&
+                              dut.u_fully_connected.i_valid &&
+                              (dut.u_fully_connected.cycle_count == 5'd24);
+            pr_dat0010_use  = dut.u_argmax.i_valid;
+
+            // Pool1 canonical byte337 is emitted in reordered word84,
+            // accepted by Mem1 at the following posedge.
+            pr_buf0007_use = dut.u_feature_mem1.i_wr_valid &&
+                             !dut.u_feature_mem1.i_start &&
+                             (dut.u_feature_mem1.wr_ptr == 8'd84);
+            // line_buf1[0] is sampled by the shift register at the next
+            // row's x=0 edge, before the nonblocking write overwrites it.
+            pr_buf0017_use = dut.u_conv1_layer.u_conv1_buf.i_valid &&
+                             !dut.u_conv1_layer.u_conv1_buf.i_start &&
+                             (dut.u_conv1_layer.u_conv1_buf.x_count == 5'd0) &&
+                             (dut.u_conv1_layer.u_conv1_buf.y_count >= 5'd2);
+
+            // Mem read outputs are registered; the downstream blocks consume
+            // the previous o_rd_valid/o_rd_data on their following edge.
+            pr_mem1_use0 = 0;
+            pr_mem1_use84 = 0;
+            pr_mem1_use168 = 0;
+            if (dut.u_conv2_layer.u_conv2_buf.i_valid) begin
+                if (pr_mem1_use_index == 0)   pr_mem1_use0 = 1;
+                if (pr_mem1_use_index == 84)  pr_mem1_use84 = 1;
+                if (pr_mem1_use_index == 168) pr_mem1_use168 = 1;
+                pr_mem1_use_index = pr_mem1_use_index + 1;
+            end
+            pr_mem2_use0 = 0;
+            pr_mem2_use12 = 0;
+            pr_mem2_use24 = 0;
+            if (dut.u_fully_connected.i_valid) begin
+                if (pr_mem2_use_index == 0)  pr_mem2_use0 = 1;
+                if (pr_mem2_use_index == 12) pr_mem2_use12 = 1;
+                if (pr_mem2_use_index == 24) pr_mem2_use24 = 1;
+                pr_mem2_use_index = pr_mem2_use_index + 1;
+            end
+            pr_buf0030_use = 0;
+            pr_buf0031_use = 0;
+            pr_buf0032_use = 0;
+            if (dut.u_conv2_layer.u_conv2_calc.i_valid) begin
+                if (pr_conv2_use_index == 0) pr_buf0030_use = 1;
+                if (pr_conv2_use_index == 120) begin
+                    pr_buf0031_use = 1;
+                    pr_buf0032_use = 1;
+                end
+                pr_conv2_use_index = pr_conv2_use_index + 1;
+            end
+
+            #2;
+            if (pr_ctl0001) $display("FI_PROFILE_EVENT,ACTIVE,CTL_0001,%0d,%0d",global_cycle,global_cycle-start_cycle);
+            if (pr_ctl0012) $display("FI_PROFILE_EVENT,ACTIVE,CTL_0012,%0d,%0d",global_cycle,global_cycle-start_cycle);
+            if (pr_ctl0019) $display("FI_PROFILE_EVENT,ACTIVE,CTL_0019,%0d,%0d",global_cycle,global_cycle-start_cycle);
+            if (pr_ctl0026) $display("FI_PROFILE_EVENT,ACTIVE,CTL_0026,%0d,%0d",global_cycle,global_cycle-start_cycle);
+            if (pr_ctl0028) $display("FI_PROFILE_EVENT,ACTIVE,CTL_0028,%0d,%0d",global_cycle,global_cycle-start_cycle);
+            if (pr_dat0002_prod) $display("FI_PROFILE_EVENT,PRODUCE,DAT_0002,%0d,%0d",global_cycle,global_cycle-start_cycle);
+            if (pr_dat0002_use)  $display("FI_PROFILE_EVENT,CONSUME,DAT_0002,%0d,%0d",global_cycle,global_cycle-start_cycle);
+            if (pr_dat0004_prod) $display("FI_PROFILE_EVENT,PRODUCE,DAT_0004,%0d,%0d",global_cycle,global_cycle-start_cycle);
+            if (pr_dat0004_use)  $display("FI_PROFILE_EVENT,CONSUME,DAT_0004,%0d,%0d",global_cycle,global_cycle-start_cycle);
+            if (pr_fc_acc_prod) begin
+                $display("FI_PROFILE_EVENT,PRODUCE,DAT_0007,%0d,%0d",global_cycle,global_cycle-start_cycle);
+                $display("FI_PROFILE_EVENT,PRODUCE,DAT_0008,%0d,%0d",global_cycle,global_cycle-start_cycle);
+            end
+            if (pr_fc_acc_use) begin
+                $display("FI_PROFILE_EVENT,CONSUME,DAT_0007,%0d,%0d",global_cycle,global_cycle-start_cycle);
+                $display("FI_PROFILE_EVENT,CONSUME,DAT_0008,%0d,%0d",global_cycle,global_cycle-start_cycle);
+            end
+            if (pr_dat0010_prod) $display("FI_PROFILE_EVENT,PRODUCE,DAT_0010,%0d,%0d",global_cycle,global_cycle-start_cycle);
+            if (pr_dat0010_use)  $display("FI_PROFILE_EVENT,CONSUME,DAT_0010,%0d,%0d",global_cycle,global_cycle-start_cycle);
+            if (pr_buf0007_use) $display("FI_PROFILE_EVENT,CONSUME,BUF_0007,%0d,%0d",global_cycle,global_cycle-start_cycle);
+            if (pr_buf0017_use) $display("FI_PROFILE_EVENT,CONSUME,BUF_0017,%0d,%0d",global_cycle,global_cycle-start_cycle);
+            if (pr_mem1_use0) $display("FI_PROFILE_EVENT,CONSUME,MEM_0001,%0d,%0d",global_cycle,global_cycle-start_cycle);
+            if (pr_mem1_use84) $display("FI_PROFILE_EVENT,CONSUME,MEM_0002,%0d,%0d",global_cycle,global_cycle-start_cycle);
+            if (pr_mem1_use168) $display("FI_PROFILE_EVENT,CONSUME,MEM_0003,%0d,%0d",global_cycle,global_cycle-start_cycle);
+            if (pr_mem2_use0) $display("FI_PROFILE_EVENT,CONSUME,MEM_0004,%0d,%0d",global_cycle,global_cycle-start_cycle);
+            if (pr_mem2_use12) $display("FI_PROFILE_EVENT,CONSUME,MEM_0005,%0d,%0d",global_cycle,global_cycle-start_cycle);
+            if (pr_mem2_use24) $display("FI_PROFILE_EVENT,CONSUME,MEM_0006,%0d,%0d",global_cycle,global_cycle-start_cycle);
+            if (pr_buf0030_use) $display("FI_PROFILE_EVENT,CONSUME,BUF_0030,%0d,%0d",global_cycle,global_cycle-start_cycle);
+            if (pr_buf0031_use) $display("FI_PROFILE_EVENT,CONSUME,BUF_0031,%0d,%0d",global_cycle,global_cycle-start_cycle);
+            if (pr_buf0032_use) $display("FI_PROFILE_EVENT,CONSUME,BUF_0032,%0d,%0d",global_cycle,global_cycle-start_cycle);
+        end
+    end
+
+    // ========================================================================
     // OPTIONAL VALUE-LEVEL MONITORS for MEM_0002 / BUF_0031 bit0 only
     // Derived from verified generic FI V2 TB. No DUT RTL changes.
     // Sample pre-NBA write/read conditions at posedge, check registered values
@@ -1260,6 +1447,7 @@ module tb_cnn_mnist_fi_pilot400;
         $display("CONTROL RUN: FI DISABLED");
         run_case(0);
         if (pilot_profile_only) begin
+            $display("FI_PROFILE_SCHEMA_V2: ACTIVE PRODUCE CONSUME PRE_NBA");
             $display("FI_PROFILE_PASS: baseline completed, no fault injected");
             $finish;
         end
