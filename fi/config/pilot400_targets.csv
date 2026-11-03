@@ -1,21 +1,21 @@
-target_id,target_class,bit_index,offset_a,offset_b,evidence_status,selection_rationale
-CTL_0001,CTL,2,125,150,PASS_ONE_WINDOW,Top FSM; offset125 previously verified; second provisional
-CTL_0012,CTL,0,850,900,CANDIDATE,Mem1 write pointer during write phase; no active-window proof
-CTL_0026,CTL,0,80,110,CANDIDATE,Conv1 input x counter; reverify activity and causal effect
-CTL_0028,CTL,0,1049,1150,CANDIDATE,Conv2 buffer state during capture and drain phases
-CTL_0019,CTL,0,1318,1325,CANDIDATE,FC cycle counter near FC processing; verify clock interval
-BUF_0030,BUF,0,965,970,PASS_ONE_WINDOW,Conv2 buffer byte0; 965 verified for first image
-BUF_0031,BUF,0,1049,1050,TIMELINE_ONE_WINDOW,Conv2 buffer byte337; 1049 timeline verified
-BUF_0032,BUF,0,1135,1136,CANDIDATE,Conv2 buffer byte675; timing must be proven
-BUF_0017,BUF,0,34,35,CANDIDATE,Conv1 line buffer1 entry0; verify lifetime
-BUF_0007,BUF,0,791,792,CANDIDATE,Pool1 reorder buffer byte337; verify lifetime
-MEM_0001,MEM,0,794,795,PASS_ONE_WINDOW,Mem1 word0; offset794 smoke verified
-MEM_0002,MEM,0,878,879,TIMELINE_ONE_WINDOW,Mem1 word84; offset878 timeline verified
-MEM_0003,MEM,0,962,963,CANDIDATE,Mem1 final word168; verify write/read ordering
-MEM_0004,MEM,0,1292,1295,CANDIDATE,Mem2 first word; timing not measured
-MEM_0005,MEM,0,1304,1307,CANDIDATE,Mem2 middle word; timing not measured
-DAT_0010,DAT,0,1340,1341,PASS_ONE_WINDOW,FC output logits; 1340 smoke verified
-DAT_0007,DAT,0,1325,1330,CANDIDATE,FC accumulator class0; verify active window
-DAT_0008,DAT,0,1325,1330,CANDIDATE,FC accumulator class5; verify active window
-DAT_0004,DAT,0,1200,1220,CANDIDATE,Conv2 raw accumulator; verify handoff
-DAT_0002,DAT,0,400,600,CANDIDATE,Conv1 quant+ReLU output; verify handoff
+target_id,target_class,bit_index,bit_index_b,offset_a,offset_b,evidence_status,selection_rationale
+CTL_0001,CTL,2,2,125,150,PASS_ONE_WINDOW,Top FSM; offset125 previously verified; second provisional
+CTL_0012,CTL,0,0,850,900,CANDIDATE,Mem1 write pointer during write phase; no active-window proof
+CTL_0026,CTL,0,0,80,110,CANDIDATE,Conv1 input x counter; reverify activity and causal effect
+CTL_0028,CTL,0,0,1049,1150,CANDIDATE,Conv2 buffer state during capture and drain phases
+CTL_0019,CTL,0,0,1318,1325,CANDIDATE,FC cycle counter near FC processing; verify clock interval
+BUF_0030,BUF,0,0,965,970,PASS_ONE_WINDOW,Conv2 buffer byte0; 965 verified for first image
+BUF_0031,BUF,0,0,1049,1050,TIMELINE_ONE_WINDOW,Conv2 buffer byte337; 1049 timeline verified
+BUF_0032,BUF,0,0,1135,1136,CANDIDATE,Conv2 buffer byte675; timing must be proven
+BUF_0017,BUF,0,0,34,35,CANDIDATE,Conv1 line buffer1 entry0; verify lifetime
+BUF_0007,BUF,0,0,791,792,CANDIDATE,Pool1 reorder buffer byte337; verify lifetime
+MEM_0001,MEM,0,0,794,795,PASS_ONE_WINDOW,Mem1 word0; offset794 smoke verified
+MEM_0002,MEM,0,0,878,879,TIMELINE_ONE_WINDOW,Mem1 word84; offset878 timeline verified
+MEM_0003,MEM,0,0,962,963,CANDIDATE,Mem1 final word168; verify write/read ordering
+MEM_0004,MEM,0,0,1292,1295,CANDIDATE,Mem2 first word; timing not measured
+MEM_0005,MEM,0,0,1304,1307,CANDIDATE,Mem2 middle word; timing not measured
+DAT_0010,DAT,0,1,1340,1340,PASS_ONE_WINDOW,FC output logits; A=bit0@1340 B=bit1@1340 at one verified FC-to-ArgMax consumer edge (nonuniform bit/time-pair design)
+DAT_0007,DAT,0,0,1325,1330,CANDIDATE,FC accumulator class0; verify active window
+DAT_0008,DAT,0,0,1325,1330,CANDIDATE,FC accumulator class5; verify active window
+DAT_0004,DAT,0,0,1200,1220,CANDIDATE,Conv2 raw accumulator; verify handoff
+DAT_0002,DAT,0,0,400,600,CANDIDATE,Conv1 quant+ReLU output; verify handoff
