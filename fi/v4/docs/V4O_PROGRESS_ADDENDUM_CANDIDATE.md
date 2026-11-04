@@ -1,0 +1,7 @@
+# Proposed PROJECT_PROGRESS addendum — V4O (NOT AUTOMATICALLY CANONICAL)
+
+- **V4N Windows:** `Ran 51 tests ... OK`; `V4N_G7L2_GOLDEN_TRACE_PASS` and `V4N_INDEPENDENT_AUDIT_PASS` with 40/40 SHA-pinned historic IMG0000 logs, 676/676 golden POOL1 bytes, 4/4 L2-only witnesses, 16/16 L2 FALSE with complete TB counters. 0 new XSim.
+- **V4O local candidate:** independent cross-evidence read-only checker rehashed 40/40 original raw logs in provided handoff, checked four frozen source pins, G7 V1 core hash, V4M 40 rows, V4N 4 witnesses and 16 complete L2 negatives, and recomputed 676 golden POOL1 bytes. 11/11 local unit tests PASS (including modified/rehashed negative input cases). This does **not** independently dump/recompute faulty RTL outputs. 0 Vivado builds / XSim.
+- **Observed directed IMG0000 outcomes:** L0=9/40, L1=20/40, L2=24/40; incremental 11/40 and 4/40 on the same 40 evaluable IDs. Four L2-only configurations belong to BUF_0007 and DAT_0002, A/B each.
+- **G7 review:** interpretation of POOL1/POOL2 scope, stage counters, denominators, design watchdog vs infrastructure timeout, and permissible claim boundaries awaiting actual human review; confirm if generic `other predeclared checkpoint` core phrase needs versioned new protocol core. No automatic seal/approval.
+- **Release:** G6 production NOT QUALIFIED; G7 PREPARED_NOT_APPROVED; Full400 BLOCKED/NOT EXECUTED. 8/8 prior bounded XSim attempt budget remains exhausted. Do not alter any frozen inputs or historical receipts.
