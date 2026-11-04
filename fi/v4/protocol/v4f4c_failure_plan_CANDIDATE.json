@@ -1,0 +1,22 @@
+{
+  "schema": "CNN_PEP_V4F4C_FAILURE_PLAN_CANDIDATE_V1",
+  "status": "CANDIDATE_BOUNDED_NOT_EXECUTED_NOT_RELEASED",
+  "frozen_scenario_ids": [
+    "FI_P400_0007", "FI_P400_0014",
+    "FI_P400_0167", "FI_P400_0174",
+    "FI_P400_0227", "FI_P400_0234",
+    "FI_P400_0387", "FI_P400_0394"
+  ],
+  "images": ["IMG0003", "IMG0006"],
+  "structural_classes": ["CTL", "BUF", "MEM", "DAT"],
+  "per_attempt_max_xsim_invocations": 1,
+  "total_reserved_attempt_budget": 8,
+  "per_attempt_max_fresh_compile_processes": 1,
+  "per_attempt_max_fresh_elaboration_processes": 1,
+  "maximum_xsim_wall_seconds_per_attempt": 900,
+  "retry_policy": "EXPLICIT_NEW_ATTEMPT_DIRECTORY_ONLY",
+  "negative_trial_status": "INVALID_INFRASTRUCTURE_NOT_DESIGN_OUTCOME",
+  "full400_authorized": false,
+  "full400_gate": "BLOCKED_G0_G7_REQUIRED",
+  "scientific_protocol_approved": false
+}

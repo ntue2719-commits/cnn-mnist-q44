@@ -1,0 +1,93 @@
+{
+  "schema": "CNN_PEP_V4F3_SCIENTIFIC_PROTOCOL_CANDIDATE_V1",
+  "status": "CANDIDATE_NOT_FROZEN_NOT_APPROVED",
+  "research_questions": {
+    "RQ_A": "Compare outcomes and fault propagation/observability across selected CTL, BUF, MEM and DAT logical RTL state bits under a single XOR-deposit upset.",
+    "RQ_B": "For the SAME executed scenario and raw trace, count added observable events at L1 vs L0 and L2 vs L1; do not interpret testbench checkpoints as on-chip detectors."
+  },
+  "design": {
+    "target_selection": "directed_selected_not_random",
+    "planned_scenarios": 400,
+    "targets": 20,
+    "samples": ["IMG0000", "IMG0001", "IMG0002", "IMG0003", "IMG0004", "IMG0005", "IMG0006", "IMG0007", "IMG0008", "IMG0009"],
+    "classes": ["CTL", "BUF", "MEM", "DAT"],
+    "two_configurations_per_target_image": true,
+    "exact_configuration_source": "fi/scenarios/pilot400.csv (frozen SHA256 cde77a6e504367192234ebab9cfdbc313a74442223f00b2ad277ca18404510f4)",
+    "dat0010_pinned_pair": ["bit0@1340", "bit1@1340"],
+    "analysis_unit": "one unique scenario_id = one selected image x target x frozen bit/time tuple",
+    "repeated_runs": "repeats test reproducibility, not independent population samples"
+  },
+  "fault_model": {
+    "event": "one RTL sequential state-bit XOR deposit per inference",
+    "persistence": "state remains changed until natural overwrite/transition",
+    "baseline": "same P0 RTL SHA256, frozen weights, selected input, time contract and bit-exact golden",
+    "excludes": "no permanent stuck-at, no physical post-route FF/radiation distribution"
+  },
+  "outcome_priority": [
+    "NONCOMPLETION", "PROTOCOL_VIOLATION", "WRONG_LABEL",
+    "WRONG_LOGITS_SAME_LABEL", "FINAL_OUTPUT_MATCH"
+  ],
+  "harmful_outcomes": ["NONCOMPLETION", "PROTOCOL_VIOLATION", "WRONG_LABEL"],
+  "numerical_corruption_not_classification_failure": "WRONG_LOGITS_SAME_LABEL",
+  "observation_levels": {
+    "L0": "wrong_label OR noncompletion OR protocol_violation",
+    "L1": "L0 OR final_raw_logits_mismatch",
+    "L2": "L1 OR observed_pool1_mismatch OR observed_pool2_mismatch OR other predeclared stage checkpoint mismatch",
+    "E3": "out-of-band value-aware consumer acceptance/control-decision proof; never on-chip error detection"
+  },
+  "stage_measurement": {
+    "required": ["sample_id", "target_id", "class", "scenario_id", "outcome", "mechanism_e1", "temporal_e2", "consumer_e3_status", "protocol_effect", "completion", "logits_comparison", "label_comparison"],
+    "checkpoint_units": "compare against fault-free golden for the same image and stage, only when the instrumented checkpoint is actually available",
+    "L2_if_unobserved": "INCONCLUSIVE_FOR_L2_UNLESS_L1_ALREADY_POSITIVE",
+    "first_bad_stage": "record earliest proven mismatch; NOT_OBSERVED otherwise",
+    "numeric_masking": "must independently establish whether arithmetic output changed; cannot infer from final match or consumer acceptance alone"
+  },
+  "paired_comparisons": {
+    "pair_id": "target_id + sample_id",
+    "members": "exactly two distinct frozen configurations A and B (not repeat executions)",
+    "L1_increment": "count(L1==1 AND L0==0) only when both are evaluable for same scenario_id",
+    "L2_increment": "count(L2==1 AND L1==0) only when both are evaluable for same scenario_id",
+    "missing_policy": "never treat NOT_OBSERVED, NOT_APPLICABLE or INCONCLUSIVE as zero"
+  },
+  "denominators": ["planned", "executed", "injected", "eligible", "consumer_verified", "completed", "classifiable", "missing", "inconclusive"],
+  "missing_value_policy": {
+    "allowed": ["NOT_OBSERVED", "NOT_APPLICABLE", "INCONCLUSIVE"],
+    "not_observed_is_not_zero": true,
+    "missing_and_inconclusive_denominators_reported_separately": true,
+    "failed_runner_or_invalid_log": "INVALID_EVIDENCE; do not classify as RTL fault outcome",
+    "timeout_validated_noncompletion": "NONCOMPLETION requires locked, documented watchdog timeout; otherwise INCONCLUSIVE",
+    "partial_campaign": "report completed prefix, missing IDs, and do not silently rescale counts to 400"
+  },
+  "nonexposure_policy": {
+    "final_output_match_does_not_prove_nonexposure": true,
+    "consumer_accepted_does_not_prove_arithmetic_mismatch": true,
+    "valid_nonexposed_requires": "explicit write/inject/overwrite/read/consumer chronology and reviewer decision"
+  },
+  "metrics": {
+    "minimum_tables": ["outcome counts by structural class", "outcome counts by target", "L0/L1/L2 same-scenario observability increments", "consumer exposure categories", "missing/inconclusive counts and denominators", "per-image descriptive results"],
+    "rates": "descriptive fractions conditioned on selected directed sample; do not generalize to physical SEU probability",
+    "physical_seu_probability_or_error_rate": "NOT_ESTIMATED",
+    "confidence_intervals_or_p_values": "DO_NOT_REPORT_AS_RANDOM_POPULATION_INFERENCE",
+    "statistical_independence": "40 directed IMG0000 evidence and V4d repeats are NOT added as independent Full400 observations"
+  },
+  "execution_integrity": {
+    "frozen_inputs": "no RTL P0/TB/weights/plan mutation, check source hashes before/after each run",
+    "one_log_per_scenario": true,
+    "atomic_checkpoint": "commit only after validated mechanism/outcome and log hash",
+    "resume": "fail closed on orphan/partial/duplicate/altered prior logs; never silently repair",
+    "campaign_approval": "separate explicit independent G0-G7 release after dedicated Full400-runner qualification",
+    "timeout_and_errors": "simulation/runtime infrastructure errors never counted as design NONCOMPLETION"
+  },
+  "scientific_limits": {
+    "physical_seu_population_claim": false,
+    "radiation_or_board_experiments_claim": false,
+    "on_chip_detector_coverage_claim": false,
+    "protective_P1_P2_P3_results_claim": false
+  },
+  "approval": {
+    "independent_reviewer_signed": false,
+    "operator_signed": false,
+    "full400_execution_authorized": false,
+    "approval_record": "NONE_CANDIDATE_ONLY"
+  }
+}
