@@ -73,3 +73,17 @@ __pycache__/
 *.jou
 *.pb
 # END CNN_PEP LOCAL-ONLY
+# BEGIN CNN_PEP_LOCAL_GENERATED
+# FI raw evidence is preserved on disk and archived separately, not source-committed.
+/fi/results/
+# Handoff archives at repository root stay local.
+/*.zip
+# Local one-off cleanup helper; inspect before considering version control.
+/cnn_pep_cleanup_commit.ps1
+/cnn_pep_git_cleanup_commit_SAFE.ps1
+# Regenerable Python test caches.
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+# END CNN_PEP_LOCAL_GENERATED
