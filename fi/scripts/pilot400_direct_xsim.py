@@ -23,6 +23,7 @@ SNAPSHOT = TOP + '_behav'
 ELAB_BUILT_MARKER = f'Built simulation snapshot {SNAPSHOT}'
 ELAB_RELINK_MARKER = ('INFO: [XSIM 43-4323] No Change in HDL. '
                       'Linking previously generated obj files to create kernel')
+SCRIPTS_ONLY_MARKER = 'CONTROL10_SCRIPT_GENERATION_PASS'
 
 
 def snapshot_signature(snapshot: Path):
@@ -40,20 +41,27 @@ def snapshot_signature(snapshot: Path):
     return (snapshot.stat().st_mtime_ns, tuple(files))
 
 
-def classify_elaboration(log_text: str, snapshot: Path, before_signature):
-    """Allow Vivado 2022.2 full-build OR successful incremental relink.
+def classify_elaboration(log_text: str, snapshot: Path, before_signature,
+                         *, expected_snapshot: str | None = None):
+    """Verify a Vivado full build or incremental relink for the intended snapshot.
 
-    An incremental relink is NOT a fresh full elaboration; keep it labeled
-    separately in the evidence manifest. Both require a real new/updated
-    snapshot, successful xelab execution, and stable hashed source inputs.
+    The default retains the frozen Control10/V3a snapshot name. Isolated V3b
+    callers must pass their own expected_snapshot explicitly. A successful
+    xelab invocation for another snapshot is never sufficient evidence.
     """
+    expected = SNAPSHOT if expected_snapshot is None else expected_snapshot
+    if not re.fullmatch(r'[A-Za-z_][A-Za-z0-9_]*', expected):
+        raise ValueError('Invalid XSim expected snapshot name')
+    if expected_snapshot is not None and snapshot.name != expected:
+        raise ValueError('XSim snapshot directory does not match requested name')
+    built_marker = f'Built simulation snapshot {expected}'
     if any(bad in log_text for bad in ('ERROR:', 'FATAL', 'Expected a switch')):
         raise ValueError('xelab log contains error/fatal or CLI parser failure')
     if 'Running:' not in log_text or 'xelab' not in log_text or \
             'Starting static elaboration' not in log_text or \
             'Completed static elaboration' not in log_text:
         raise ValueError('xelab log lacks an actual completed elaboration pass')
-    if ELAB_BUILT_MARKER in log_text:
+    if any(line.strip() == built_marker for line in log_text.splitlines()):
         mode = 'FULL_BUILD'
     elif ELAB_RELINK_MARKER in log_text:
         mode = 'INCREMENTAL_RELINK'
@@ -76,11 +84,20 @@ def batch_safe(value: str) -> str:
     return value.replace('\\', '/')
 
 
-def prepare_tcl(project: Path, fileset: str) -> str:
+def prepare_tcl(project: Path, fileset: str, marker_file: Path) -> str:
+    """Generate XSim scripts without writing to Vivado's fragile stdout channel.
+
+    Vivado 2022.2 can close stdout during launch_simulation -scripts_only;
+    a trailing `puts "...PASS"` then raises `can not find channel named stdout`.
+    Write the success token to a separate file *only after* script generation.
+    """
     if not fileset.isidentifier():
         raise ValueError('Invalid simulation fileset')
     return (
-        '# Generate fresh XSim compile/elaborate scripts; DO NOT run or inject.\n'
+        '# Generate XSim scripts, no simulation or fault injection.\n'
+        f'set success_marker {safe_tcl(marker_file.resolve().as_posix())}\n'
+        # Fail closed on stale markers, including from an earlier crashed run.
+        'file delete -force -- $success_marker\n'
         f'open_project {safe_tcl(project.resolve().as_posix())}\n'
         f'set fs [get_filesets {safe_tcl(fileset)}]\n'
         'if {[llength $fs] != 1} {error {Missing or ambiguous simulation fileset}}\n'
@@ -88,13 +105,31 @@ def prepare_tcl(project: Path, fileset: str) -> str:
         'set_property xsim.compile.incremental false $fs\n'
         'update_compile_order -fileset $fs\n'
         'if {[catch {launch_simulation -scripts_only -absolute_path -noclean_dir} err opts]} {\n'
-        '    puts stderr "CONTROL10_SCRIPT_GENERATION_FAIL: $err"\n'
+        '    catch {puts stderr "CONTROL10_SCRIPT_GENERATION_FAIL: $err"}\n'
         '    exit 1\n'
         '}\n'
-        'puts "CONTROL10_SCRIPT_GENERATION_PASS"\n'
-        'close_project\n'
+        'set success_channel [open $success_marker w]\n'
+        f'puts $success_channel {{{SCRIPTS_ONLY_MARKER}}}\n'
+        'close $success_channel\n'
+        # No subsequent stdout writes; exit closes the Vivado project cleanly.
         'exit 0\n'
     )
+
+
+def verify_scripts_only_evidence(marker_file: Path, prepare_log: Path) -> None:
+    """Require a *real*, fresh Tcl-created marker, never a source echo in the log."""
+    if not marker_file.is_file():
+        raise ValueError('Missing scripts_only success marker: '+str(marker_file))
+    if marker_file.read_text(encoding='utf-8').strip() != SCRIPTS_ONLY_MARKER:
+        raise ValueError('Invalid scripts_only success marker: '+str(marker_file))
+    log = prepare_log.read_text(encoding='utf-8', errors='replace')
+    for name in ('compile.bat', 'elaborate.bat', 'simulate.bat'):
+        if not any(line.startswith('INFO: [USF-XSim-60] Script generated:')
+                   and line.rstrip().endswith('/'+name)
+                   for line in log.splitlines()):
+            raise ValueError('Vivado did not report generating '+name+': '+str(prepare_log))
+    if any(line.startswith(('ERROR:', 'FATAL:')) for line in log.splitlines()):
+        raise ValueError('Vivado scripts_only log contains error/fatal: '+str(prepare_log))
 
 
 def project_source_hashes(project_prj: Path, repo: Path,
@@ -194,7 +229,8 @@ def make_cmd_stage(simdir: Path, vivado_root: Path, stage: str,
 
 
 def make_cmd_run(simdir: Path, vivado_root: Path, row: dict[str,str],
-                 sample_dir: Path, tcl: Path, log: Path, console: Path) -> str:
+                 sample_dir: Path, tcl: Path, log: Path, console: Path,
+                 *, profile_only: bool = True) -> str:
     """Quote the WHOLE NAME=VALUE token: verified to fix Windows XSim 2022.2."""
     required=('scenario_id','target_id','bit_index','sample_id','injection_offset')
     if any(not row.get(key) for key in required):
@@ -205,13 +241,16 @@ def make_cmd_run(simdir: Path, vivado_root: Path, row: dict[str,str],
         'TARGET_ID':row['target_id'],
         'FI_BIT':row['bit_index'],
         'SAMPLE_ID':row['sample_id'],
-        'PILOT_PROFILE_ONLY':'1',
+    }
+    if profile_only:
+        plusargs['PILOT_PROFILE_ONLY'] = '1'
+    plusargs.update({
         'INPUT_FILE':(sample_dir/'input.hex').resolve().as_posix(),
         'POOL1_FILE':(sample_dir/'golden_pool1.hex').resolve().as_posix(),
         'POOL2_FILE':(sample_dir/'golden_pool2.hex').resolve().as_posix(),
         'LOGITS_FILE':(sample_dir/'golden.hex').resolve().as_posix(),
         'PREDICTION_FILE':(sample_dir/'prediction.hex').resolve().as_posix(),
-    }
+    })
     extras = ' '.join(f'-testplusarg "{batch_safe(k+"="+v)}"' for k,v in plusargs.items())
     return ('@echo off\nsetlocal EnableExtensions\n'
             f'set "XILINX_VIVADO={batch_safe(str(vivado_root))}"\n'
@@ -260,13 +299,14 @@ def execute_direct_control10(repo: Path, project: Path, vivado: str,
         raise ValueError('xsim.bat not found next to Vivado: '+str(vivado_root))
     simdir=(project.parent/(project.stem+'.sim')/fileset/'behav'/'xsim').resolve()
     prepare=out/'prepare_snapshot.tcl'
-    prepare.write_text(prepare_tcl(project,fileset),encoding='ascii')
+    marker=out/'scripts_only_success.marker'
+    # Never accept a leftover marker from an interrupted earlier attempt.
+    marker.unlink(missing_ok=True)
+    prepare.write_text(prepare_tcl(project,fileset,marker),encoding='ascii')
     prep_log=out/'prepare_snapshot.log'
     call_checked([str(binary),'-mode','batch','-source',str(prepare.resolve()),
                   '-nolog','-nojournal'],project.parent,prep_log,timeout,'Vivado scripts_only')
-    prep_text=prep_log.read_text(encoding='utf-8',errors='replace')
-    if 'CONTROL10_SCRIPT_GENERATION_PASS' not in prep_text:
-        raise ValueError('Vivado scripts_only has no explicit PASS marker: '+str(prep_log))
+    verify_scripts_only_evidence(marker,prep_log)
     src_prj=simdir/(TOP+'_vlog.prj')
     for generated in (simdir/'compile.bat',simdir/'elaborate.bat',src_prj):
         if not generated.is_file() or generated.stat().st_size < 100:

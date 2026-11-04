@@ -3,6 +3,8 @@
 from __future__ import annotations
 import csv
 from pathlib import Path
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -455,12 +457,86 @@ class DirectControl10BackendTests(unittest.TestCase):
 
     def test_prepare_generates_scripts_once_without_reset(self):
         from pilot400_direct_xsim import prepare_tcl
-        txt=prepare_tcl(Path('/temp/Simulation.xpr'),'sim_1')
+        txt=prepare_tcl(Path('/temp/Simulation.xpr'),'sim_1',
+                        Path('/temp/scripts_only_success.marker'))
         self.assertIn('launch_simulation -scripts_only -absolute_path -noclean_dir',txt)
-        self.assertIn('CONTROL10_SCRIPT_GENERATION_PASS',txt)
+        self.assertIn('puts $success_channel {CONTROL10_SCRIPT_GENERATION_PASS}',txt)
+        self.assertNotIn('puts "CONTROL10_SCRIPT_GENERATION_PASS"',txt)
+        self.assertIn('file delete -force -- $success_marker',txt)
         self.assertIn('set_property top tb_cnn_mnist_fi_pilot400',txt)
         self.assertNotIn('reset_simulation',txt)
         self.assertNotIn('run all',txt)
+
+    def test_scripts_only_marker_requires_real_file_not_vivado_source_echo(self):
+        from pilot400_direct_xsim import (SCRIPTS_ONLY_MARKER,
+                                          verify_scripts_only_evidence)
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            stamp=root/'scripts_only_success.marker'
+            log=root/'prepare.log'
+            log.write_text('## puts $success_channel {CONTROL10_SCRIPT_GENERATION_PASS}\n'
+                           'INFO: [USF-XSim-60] Script generated:/tmp/compile.bat\n'
+                           'INFO: [USF-XSim-60] Script generated:/tmp/elaborate.bat\n'
+                           'INFO: [USF-XSim-60] Script generated:/tmp/simulate.bat\n')
+            with self.assertRaisesRegex(ValueError,'Missing scripts_only'):
+                verify_scripts_only_evidence(stamp,log)
+            stamp.write_text(SCRIPTS_ONLY_MARKER+'\n')
+            verify_scripts_only_evidence(stamp,log)
+            stamp.write_text('not the success token')
+            with self.assertRaisesRegex(ValueError,'Invalid scripts_only'):
+                verify_scripts_only_evidence(stamp,log)
+            stamp.write_text(SCRIPTS_ONLY_MARKER)
+            log.write_text('## puts $success_channel {CONTROL10_SCRIPT_GENERATION_PASS}\n')
+            with self.assertRaisesRegex(ValueError,'did not report generating'):
+                verify_scripts_only_evidence(stamp,log)
+            log.write_text('INFO: [USF-XSim-60] Script generated:/tmp/compile.bat\n'
+                           'INFO: [USF-XSim-60] Script generated:/tmp/elaborate.bat\n'
+                           'INFO: [USF-XSim-60] Script generated:/tmp/simulate.bat\n'
+                           'ERROR: broken channel\n')
+            with self.assertRaisesRegex(ValueError,'contains error'):
+                verify_scripts_only_evidence(stamp,log)
+
+    @unittest.skipUnless(shutil.which('tclsh'), 'tclsh not available on host')
+    def test_prepare_tcl_survives_vivado_closing_stdout(self):
+        """Reproduce the exact failure: Tcl stdout closed inside scripts_only."""
+        from pilot400_direct_xsim import prepare_tcl, SCRIPTS_ONLY_MARKER
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            marker=root/'success.marker'
+            source=root/'prepare.tcl'
+            source.write_text(prepare_tcl(root/'Simulation.xpr','sim_1',marker))
+            mock='''proc open_project {args} {}
+proc get_filesets {args} {return [list sim_1]}
+proc set_property {args} {}
+proc update_compile_order {args} {}
+proc launch_simulation {args} {close stdout}
+'''
+            script=root/'driver.tcl'
+            script.write_text(mock+'\nsource {'+source.as_posix()+'}\n')
+            run=subprocess.run(['tclsh',str(script)],capture_output=True,text=True)
+            self.assertEqual(run.returncode,0,run.stderr)
+            self.assertEqual(marker.read_text().strip(),SCRIPTS_ONLY_MARKER)
+
+    @unittest.skipUnless(shutil.which('tclsh'), 'tclsh not available on host')
+    def test_failed_scripts_only_clears_stale_marker_and_exits_nonzero(self):
+        from pilot400_direct_xsim import prepare_tcl, SCRIPTS_ONLY_MARKER
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            marker=root/'success.marker'
+            marker.write_text(SCRIPTS_ONLY_MARKER)
+            source=root/'prepare.tcl'
+            source.write_text(prepare_tcl(root/'Simulation.xpr','sim_1',marker))
+            mock='''proc open_project {args} {}
+proc get_filesets {args} {return [list sim_1]}
+proc set_property {args} {}
+proc update_compile_order {args} {}
+proc launch_simulation {args} {error {mock Vivado generation failure}}
+'''
+            script=root/'driver.tcl'
+            script.write_text(mock+'\nsource {'+source.as_posix()+'}\n')
+            run=subprocess.run(['tclsh',str(script)],capture_output=True,text=True)
+            self.assertNotEqual(run.returncode,0)
+            self.assertFalse(marker.exists())
 
     def test_direct_run_quotes_entire_plusarg_tokens(self):
         from pilot400_direct_xsim import make_cmd_run
